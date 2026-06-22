@@ -458,7 +458,7 @@ function renderHabitList() {
     const checked = h.checkins && h.checkins[today];
     const streak = calcStreak(h.checkins);
     const emojiHtml = h.emoji ? '<span class="habit-emoji">' + h.emoji + '</span>' : '';
-    return '<div class="habit-item" data-hid="' + h.id + '">' + emojiHtml + '<button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
+    return '<div class="habit-item" data-hid="' + h.id + '">' + emojiHtml + '<button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-edit" title="编辑">✏️</button><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
   };
 
   let html = active.map(renderItem).join('');
@@ -478,6 +478,7 @@ function renderHabitList() {
     if (item) {
       const hid = item.dataset.hid;
       if (ev.target.closest('.habit-check')) toggleHabitCheck(hid);
+      if (ev.target.closest('.habit-edit')) editHabit(hid);
       if (ev.target.closest('.habit-del')) deleteHabit(hid);
       if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
       return;
@@ -608,6 +609,7 @@ async function syncHabitToDiary(habitTitle) {
 }
 
 function openHabitAdd() {
+  window._editingHabitId = null; // 清编辑标记，确保是新增模式
   var EMOJIS = ['🏃','🏋️','🧘','🚴','🏊','🧗','🎯','💪','🧠','📚','📖','📝','✍️','🎨','🎵','🎸','🎬','🎮','🧩','🧵','🧶','🌱','🍳','🧹','🧺','☀️','🌙','⭐','💤','🍵','☕','🚶','💃','🗣️','💻','📱','🎧','📷','💰','📊','📈','📋','✅','⏰','🔔','🎉','🏆','🌟','💡','🔧','🧪','🔬','💊','🙏','🤝','💭','🛠️','🚗','✈️','🧳','🎤','🎥','🎿','🏂','🤸','🕺'];
   var emojiGrid = '<div class="emoji-picker">' + EMOJIS.map(function(e) { return '<button class="emoji-opt" onclick="pickEmoji(this,\'' + e + '\')">' + e + '</button>'; }).join('') + '</div>';
   window._selectedEmoji = '';
@@ -657,7 +659,42 @@ function pickEmoji(btn, emoji) {
   window._selectedEmoji = emoji;
 }
 
+async function editHabit(hid) {
+  const h = _habitList.find(function(x) { return x.id === hid; });
+  if (!h) return;
+
+  // 复用添加弹窗，预填数据
+  var EMOJIS = ['🏃','🏋️','🧘','🚴','🏊','🧗','🎯','💪','🧠','📚','📖','📝','✍️','🎨','🎵','🎸','🎬','🎮','🧩','🧵','🧶','🌱','🍳','🧹','🧺','☀️','🌙','⭐','💤','🍵','☕','🚶','💃','🗣️','💻','📱','🎧','📷','💰','📊','📈','📋','✅','⏰','🔔','🎉','🏆','🌟','💡','🔧','🧪','🔬','💊','🙏','🤝','💭','🛠️','🚗','✈️','🧳','🎤','🎥','🎿','🏂','🤸','🕺'];
+  var emojiGrid = '<div class="emoji-picker">' + EMOJIS.map(function(e) { return '<button class="emoji-opt' + (h.emoji === e ? ' selected' : '') + '" onclick="pickEmoji(this,\'' + e + '\')">' + e + '</button>'; }).join('') + '</div>';
+  window._selectedEmoji = h.emoji || '';
+  window._selectedDays = h.weekly_days || [];
+
+  var WEEKDAYS = ['日','一','二','三','四','五','六'];
+  var selectedDays = h.weekly_days || [];
+  var dayToggles = WEEKDAYS.map(function(label, i) {
+    return '<button class="day-toggle' + (selectedDays.indexOf(i) !== -1 ? ' selected' : '') + '" data-day="' + i + '" onclick="toggleDay(this)">' + label + '</button>';
+  }).join('');
+
+  var isWeekly = (h.rhythm === 'weekly');
+  var html = '<div class="modal-overlay" onclick="if(event.target===this)closeOKRModal()"><div class="modal-box" style="max-width:440px"><h3>编辑习惯</h3>' +
+    '<label>习惯名称</label><input id="habit-e-title" value="' + escHtml(h.title) + '">' +
+    '<label>选择图标（点击选中）</label>' + emojiGrid +
+    '<label>打卡节奏</label><select id="habit-e-rhythm" onchange="toggleWeeklyOptions()"><option value="daily"' + (isWeekly ? '' : ' selected') + '>每天</option><option value="weekly"' + (isWeekly ? ' selected' : '') + '>每周</option></select>' +
+    '<div id="habit-weekly-options" style="' + (isWeekly ? '' : 'display:none') + ';margin-top:4px">' +
+      '<label>每周哪几天</label><div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">' + dayToggles + '</div>' +
+      '<label>每周目标次数</label><select id="habit-e-target">' +
+        Array.from({length:7}, function(_,i) { return '<option value="' + (i+1) + '"' + (h.target_count === i+1 ? ' selected' : '') + '>' + (i+1) + ' 次</option>'; }).join('') +
+      '</select>' +
+    '</div>' +
+    '<div class="btn-row" style="margin-top:10px"><button class="btn" data-act="close-modal">取消</button><button class="btn accent" data-act="save-habit">💾 保存</button></div></div></div>';
+  document.getElementById('okr-modal-container').innerHTML = html;
+
+  // 标记编辑模式
+  window._editingHabitId = hid;
+}
+
 async function saveHabitAdd() {
+  const isEdit = !!window._editingHabitId;
   const title = document.getElementById('habit-e-title').value.trim();
   if (!title) { alert('请输入习惯名称'); return; }
   const emoji = window._selectedEmoji || '';
@@ -677,12 +714,28 @@ async function saveHabitAdd() {
     targetCount = 7;
     restDays = [];
   }
-  const { data, error } = await sb.from('habits').insert({
-    title: title, emoji: emoji, rhythm: rhythm, target_count: targetCount,
-    weekly_days: weeklyDays, rest_days: restDays, checkins: {}, archived: false
-  }).select();
-  if (error) { alert('添加失败: ' + error.message); return; }
-  if (data && data[0]) _habitList.push(data[0]);
+  if (isEdit) {
+    var hid = window._editingHabitId;
+    const { error } = await sb.from('habits').update({
+      title: title, emoji: emoji, rhythm: rhythm, target_count: targetCount,
+      weekly_days: weeklyDays, rest_days: restDays
+    }).eq('id', hid);
+    if (error) { alert('保存失败: ' + error.message); return; }
+    // 更新本地缓存
+    var h = _habitList.find(function(x) { return x.id === hid; });
+    if (h) {
+      h.title = title; h.emoji = emoji; h.rhythm = rhythm;
+      h.target_count = targetCount; h.weekly_days = weeklyDays; h.rest_days = restDays;
+    }
+    window._editingHabitId = null;
+  } else {
+    const { data, error } = await sb.from('habits').insert({
+      title: title, emoji: emoji, rhythm: rhythm, target_count: targetCount,
+      weekly_days: weeklyDays, rest_days: restDays, checkins: {}, archived: false
+    }).select();
+    if (error) { alert('添加失败: ' + error.message); return; }
+    if (data && data[0]) _habitList.push(data[0]);
+  }
   closeOKRModal();
   renderHabitList();
   renderHabitCalendar();
@@ -2942,6 +2995,12 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .habit-item:hover .habit-archive { opacity: 1; }
 .habit-archive:hover { color: var(--accent); }
+.habit-edit {
+  font-size: 10px; color: var(--text-muted); cursor: pointer; background: none; border: none;
+  opacity: 0; transition: opacity 0.15s; padding: 2px 4px;
+}
+.habit-item:hover .habit-edit { opacity: 1; }
+.habit-edit:hover { color: var(--accent); }
 .habit-emoji { font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
 
 /* 习惯归档区 */
