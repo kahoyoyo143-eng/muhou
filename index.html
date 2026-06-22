@@ -66,11 +66,11 @@ function renderOKRList() {
         const subtasks = t.subtasks || [];
         const subHTML = subtasks.length === 0 ? '' : '<div class="okr-subtasks">' + subtasks.map((st, si) => {
           const sdClass = st.done ? ' done' : '';
-          return '<div class="okr-subtask' + sdClass + '"><input type="checkbox" ' + (st.done ? 'checked' : '') + ' data-act="toggle-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" data-si="' + si + '"><span>' + escHtml(st.title) + '</span></div>';
+          return '<div class="okr-subtask' + sdClass + '"><input type="checkbox" ' + (st.done ? 'checked' : '') + ' data-act="toggle-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" data-si="' + si + '"><span>' + escHtml(st.title) + '</span><button data-act="delete-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" data-si="' + si + '" title="删除子任务" class="okr-del-btn">✕</button></div>';
         }).join('') + '</div>';
-        return '<div class="okr-task' + doneClass + '"><input type="checkbox" ' + (t.done ? 'checked' : '') + ' data-act="toggle-task" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '"><span>' + escHtml(t.title) + '</span><div class="okr-task-actions"><button data-act="add-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" title="添加子任务">+子</button></div></div>' + subHTML;
+        return '<div class="okr-task' + doneClass + '"><input type="checkbox" ' + (t.done ? 'checked' : '') + ' data-act="toggle-task" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '"><span>' + escHtml(t.title) + '</span><div class="okr-task-actions"><button data-act="add-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" title="添加子任务">+子</button><button data-act="delete-task" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" title="删除任务" class="okr-del-btn">✕</button></div></div>' + subHTML;
       }).join('') + '</div>';
-      return '<div class="okr-kr"><div class="okr-kr-title"><span class="okr-kr-label">' + escHtml(kr.title) + '</span><div class="okr-progress-bar"><div class="okr-progress-fill" style="width:' + pct + '%"></div></div><span class="okr-progress-pct">' + pct + '%</span></div>' + taskHTML + '<button class="btn-xs" style="margin-top:4px" data-act="add-task" data-oid="' + o.id + '" data-ki="' + ki + '">+ 任务</button></div>';
+      return '<div class="okr-kr"><div class="okr-kr-title"><span class="okr-kr-label">' + escHtml(kr.title) + '</span><div class="okr-progress-bar"><div class="okr-progress-fill" style="width:' + pct + '%"></div></div><span class="okr-progress-pct">' + pct + '%</span><button data-act="delete-kr" data-oid="' + o.id + '" data-ki="' + ki + '" title="删除KR" class="okr-del-btn" style="margin-left:8px">✕</button></div>' + taskHTML + '<button class="btn-xs" style="margin-top:4px" data-act="add-task" data-oid="' + o.id + '" data-ki="' + ki + '">+ 任务</button></div>';
     }).join('') + '</div>';
 
     const deadlineStr = o.deadline ? '⏰ ' + o.deadline : '';
@@ -90,6 +90,9 @@ function renderOKRList() {
     if (act === 'add-kr') addOKRKR(oid);
     if (act === 'add-task') addOKRTask(oid, parseInt(btn.dataset.ki));
     if (act === 'add-subtask') { ev.stopPropagation(); addOKRSubtask(oid, parseInt(btn.dataset.ki), parseInt(btn.dataset.ti)); }
+    if (act === 'delete-kr') deleteOKRKR(oid, parseInt(btn.dataset.ki));
+    if (act === 'delete-task') deleteOKRTask(oid, parseInt(btn.dataset.ki), parseInt(btn.dataset.ti));
+    if (act === 'delete-subtask') deleteOKRSubtask(oid, parseInt(btn.dataset.ki), parseInt(btn.dataset.ti), parseInt(btn.dataset.si));
     if (act === 'toggle-collapse') toggleOKRCollapse(oid);
   };
 
@@ -202,6 +205,33 @@ async function addOKRSubtask(objId, krIdx, taskIdx) {
   const task = obj.key_results[krIdx].tasks[taskIdx];
   if (!task.subtasks) task.subtasks = [];
   task.subtasks.push({ title: title.trim(), done: false });
+  await sb.from('okrs').update({ key_results: obj.key_results }).eq('id', objId);
+  renderOKRList();
+}
+
+// ===== 删除 KR / 任务 / 子任务 =====
+async function deleteOKRKR(objId, krIdx) {
+  if (!confirm('确定删除这个 KR 及其所有任务吗？')) return;
+  const obj = _okrList.find(o => o.id === objId);
+  if (!obj) return;
+  obj.key_results.splice(krIdx, 1);
+  await sb.from('okrs').update({ key_results: obj.key_results }).eq('id', objId);
+  renderOKRList();
+}
+
+async function deleteOKRTask(objId, krIdx, taskIdx) {
+  if (!confirm('确定删除这个任务吗？')) return;
+  const obj = _okrList.find(o => o.id === objId);
+  if (!obj) return;
+  obj.key_results[krIdx].tasks.splice(taskIdx, 1);
+  await sb.from('okrs').update({ key_results: obj.key_results }).eq('id', objId);
+  renderOKRList();
+}
+
+async function deleteOKRSubtask(objId, krIdx, taskIdx, subIdx) {
+  const obj = _okrList.find(o => o.id === objId);
+  if (!obj) return;
+  obj.key_results[krIdx].tasks[taskIdx].subtasks.splice(subIdx, 1);
   await sb.from('okrs').update({ key_results: obj.key_results }).eq('id', objId);
   renderOKRList();
 }
@@ -2788,6 +2818,17 @@ textarea { resize: vertical; min-height: 80px; }
   background: transparent; color: var(--text-muted); cursor: pointer;
 }
 .okr-task-actions button:hover { color: var(--text); }
+
+/* 删除按钮（KR / 任务 / 子任务）*/
+.okr-del-btn {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px; border: none;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  opacity: 0; transition: opacity 0.15s; margin-left: 4px;
+}
+.okr-del-btn:hover { color: var(--danger); background: rgba(217,68,68,0.08); }
+.okr-task:hover .okr-del-btn,
+.okr-subtask:hover .okr-del-btn,
+.okr-kr-title:hover .okr-del-btn { opacity: 1; }
 
 /* 子任务 */
 .okr-subtasks { margin-left: 22px; font-size: 12px; }
