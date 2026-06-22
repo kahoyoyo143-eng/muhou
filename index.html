@@ -19,15 +19,15 @@ let _editingOKRId = null; // 当前编辑中的OKR ID，null=新建
 // ===== 初始化 =====
 async function loadOKRPage() {
   if (!sb) return;
-  // 默认周期设为当前季度和月份
+  // 默认显示全部目标（不筛选月份）
   const now = new Date();
   const q = Math.ceil((now.getMonth() + 1) / 3);
   _okrPeriodQ = now.getFullYear() + '-Q' + q;
-  _okrPeriodM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  _okrPeriodM = ''; // 默认"全部月份"
   _habitCalMonth = now.getMonth();
   _habitCalYear = now.getFullYear();
   document.getElementById('okr-period-q').value = _okrPeriodQ;
-  document.getElementById('okr-period-m').value = _okrPeriodM;
+  document.getElementById('okr-period-m').value = '';
 
   await Promise.all([loadOKRData(), loadHabitData(), loadTodayItems()]);
   renderMotto();
@@ -44,12 +44,10 @@ async function loadOKRData() {
 function renderOKRList() {
   const el = document.getElementById('okr-list');
   if (!el) return;
-  // 过滤
+  // 过滤：选了具体月份才过滤，否则显示全部
   let list = _okrList;
   if (_okrPeriodM) {
     list = list.filter(o => o.period_m === _okrPeriodM || o.period_q === _okrPeriodQ);
-  } else {
-    list = list.filter(o => o.period_q === _okrPeriodQ);
   }
 
   if (list.length === 0) {
