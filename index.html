@@ -385,17 +385,26 @@ async function saveTodayItems() {
     const { error } = await sb.from('daily_items').upsert({ date: '_current', items: allItems }, { onConflict: 'date' });
     if (error) {
       console.error('保存今日事项失败：', error.message);
-      _showToast('⚠️ 保存失败，请检查网络后刷新重试');
+      _showToast('⚠️ 保存失败：' + error.message);
+      _updateSaveStatus('❌ 保存失败');
+    } else {
+      _updateSaveStatus('✅ 已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     }
   } catch (e) {
     console.error('保存今日事项异常：', e.message || e);
-    _showToast('⚠️ 网络异常，数据可能未保存。请检查网络后刷新重试');
+    _showToast('⚠️ 网络异常，数据可能未保存');
+    _updateSaveStatus('❌ 网络异常');
   }
 }
 
 async function saveMemoItems() {
   // 用同一个函数保存，避免重复
   await saveTodayItems();
+}
+
+function _updateSaveStatus(msg) {
+  var el = document.getElementById('save-status');
+  if (el) { el.textContent = msg; el.style.opacity = '1'; clearTimeout(el._tids); el._tids = setTimeout(function() { el.style.opacity = '0.4'; }, 3000); }
 }
 
 async function pickTodayItems() {
@@ -2356,8 +2365,25 @@ let _tgInspirations = [];
 async function loadTagsPage() {
   if (!sb) { document.getElementById('tg-cloud').innerHTML = '<div class="tg-cloud-empty">⚠️ 请先配置 Supabase 连接</div>'; return; }
   await buildTagCounts();
+  renderTagStats();
   renderTagCloud();
   renderTagList();
+}
+
+function renderTagStats() {
+  var el = document.getElementById('tg-stats-bar');
+  if (!el) return;
+  var totalTags = _tgAllTags.length;
+  var totalItems = _tgInspirations.length;
+  var totalPracticed = _tgInspirations.filter(function(it) { return it.status === 'practiced'; }).length;
+  var totalNoted = _tgInspirations.filter(function(it) { return it.status === 'noted'; }).length;
+  var totalCollected = _tgInspirations.filter(function(it) { return it.status === 'collected'; }).length;
+  if (totalTags === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="tg-stat-item">🏷️ <b>' + totalTags + '</b> 个标签</div>' +
+    '<div class="tg-stat-item">💡 <b>' + totalItems + '</b> 条灵感</div>' +
+    '<div class="tg-stat-item">✅ <b>' + totalPracticed + '</b> 已实践</div>' +
+    '<div class="tg-stat-item">📝 <b>' + totalNoted + '</b> 已笔记</div>' +
+    '<div class="tg-stat-item">📥 <b>' + totalCollected + '</b> 刚收集</div>';
 }
 
 async function buildTagCounts() {
@@ -4194,6 +4220,18 @@ textarea { resize: vertical; min-height: 80px; }
 /* ============================================
    标签管理
    ============================================ */
+/* 页面描述 */
+.page-desc { font-size: 13px; color: var(--text-muted); margin: -8px 0 16px 0; }
+
+/* 统计概览 */
+.tg-stats-bar {
+  display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
+  padding: 12px 16px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.tg-stat-item { font-size: 13px; color: var(--text-muted); }
+.tg-stat-item b { color: var(--text); }
+
 /* 标签云 */
 .tg-cloud {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -4366,7 +4404,7 @@ textarea { resize: vertical; min-height: 80px; }
         <div class="okr-block" id="today-block">
           <div class="today-memo-row">
             <div class="today-half">
-              <h3>📌 今日 3 件事</h3>
+              <h3>📌 今日 3 件事 <span id="save-status" style="font-size:10px;font-weight:400;color:var(--text-muted);opacity:0.4;transition:opacity 0.3s"></span></h3>
               <div class="today-pick" id="today-list"></div>
               <button class="btn-sm" style="margin-top:8px" onclick="pickTodayItems()">+ 从 OKR 任务中选择</button>
             </div>
@@ -4374,7 +4412,7 @@ textarea { resize: vertical; min-height: 80px; }
               <h3>📝 备忘录</h3>
               <div class="memo-list" id="memo-list"></div>
               <div class="memo-add-row">
-                <input type="text" id="memo-input" placeholder="添加备忘..." onkeydown="if(event.key==='Enter')addMemo()">
+                <input type="text" id="memo-input" placeholder="添加备忘..." onkeydown="if(event.key==='Enter'){event.preventDefault();addMemo();}">
                 <button class="btn-sm" onclick="addMemo()">+</button>
               </div>
             </div>
@@ -4550,6 +4588,10 @@ textarea { resize: vertical; min-height: 80px; }
   <!-- ========== 🏷️ 标签 ========== -->
   <div class="page" id="page-tags">
     <div class="page-title">🏷️ 标签管理</div>
+    <p class="page-desc">管理灵感标签 · 点击标签展开详情 · 点击🔍跳转灵感库筛选</p>
+
+    <!-- 统计概览 -->
+    <div class="tg-stats-bar" id="tg-stats-bar"></div>
 
     <!-- 标签云 -->
     <div class="tg-cloud" id="tg-cloud"></div>
