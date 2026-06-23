@@ -283,8 +283,8 @@ function onOKRPeriodChange() {
 // ===== 今日 3 件事 =====
 async function loadTodayItems() {
   if (!sb) return;
-  const today = new Date().toISOString().slice(0, 10);
-  const { data } = await sb.from('daily_items').select('*').eq('date', today).single();
+  // 持久保留，不按天清空；用固定 key '_current'
+  const { data } = await sb.from('daily_items').select('*').eq('date', '_current').single();
   const allItems = (data && data.items) ? data.items : [];
   _todayItems = allItems.filter(function(it) { return it.type !== 'memo'; });
   _memoItems = allItems.filter(function(it) { return it.type === 'memo'; });
@@ -358,11 +358,10 @@ async function removeMemoItem(i) {
 
 async function saveTodayItems() {
   if (!sb) return;
-  const today = new Date().toISOString().slice(0, 10);
-  // 合并今日事项 + 备忘，注记类型便于复盘查询
+  // 持久保留，用固定 key '_current'
   const memos = _memoItems.map(function(m) { m.type = 'memo'; return m; });
   const allItems = _todayItems.concat(memos);
-  await sb.from('daily_items').upsert({ date: today, items: allItems }, { onConflict: 'date' });
+  await sb.from('daily_items').upsert({ date: '_current', items: allItems }, { onConflict: 'date' });
 }
 
 async function saveMemoItems() {
@@ -371,17 +370,23 @@ async function saveMemoItems() {
 }
 
 async function pickTodayItems() {
-  // 收集所有未完成的事项：KR 本身 + KR 下面的任务
-  // 不是每个 KR 都会有子任务，所以 KR 本身也要纳入可选范围
+  // 收集所有未完成的事项：KR + 任务 + 子任务
   const tasks = [];
   _okrList.forEach(o => {
     (o.key_results || []).forEach((kr, ki) => {
       // KR 本身始终可选
       tasks.push({ objId: o.id, krIdx: ki, title: kr.title, objTitle: o.title, isKR: true });
-      // KR 下面的未完成任务也可选
-      const undoneTasks = (kr.tasks || []).filter(t => !t.done);
-      undoneTasks.forEach((t, ti) => {
-        tasks.push({ objId: o.id, krIdx: ki, taskIdx: (kr.tasks || []).indexOf(t), title: t.title, objTitle: o.title, isKR: false });
+      // KR 下面的任务和子任务
+      (kr.tasks || []).forEach((t, ti) => {
+        if (!t.done) {
+          tasks.push({ objId: o.id, krIdx: ki, taskIdx: ti, title: t.title, objTitle: o.title, isKR: false, isSubtask: false });
+        }
+        // 子任务也可选
+        (t.subtasks || []).forEach((st, si) => {
+          if (!st.done) {
+            tasks.push({ objId: o.id, krIdx: ki, taskIdx: ti, subIdx: si, title: st.title, objTitle: o.title, isKR: false, isSubtask: true });
+          }
+        });
       });
     });
   });
@@ -397,7 +402,7 @@ async function pickTodayItems() {
   // 存到全局，confirmPickToday 需要读
   window._pickTasks = tasks;
 
-  // 按 目标 → KR 两层分组显示
+  // 按 目标 → KR → 任务 → 子任务 四层分组显示
   let taskOptions = '';
   _okrList.forEach(o => {
     const objTasks = tasks.filter(t => t.objId === o.id);
@@ -408,9 +413,14 @@ async function pickTodayItems() {
       if (krItem != null) {
         taskOptions += '<label style="display:flex;align-items:center;gap:8px;padding:5px 0 3px 10px;cursor:pointer;font-size:13px"><input type="checkbox" value="' + krItem._idx + '" id="pick-t-' + krItem._idx + '"><span style="font-weight:500">📋 ' + escHtml(krItem.title) + '</span></label>';
       }
-      const krTasks = objTasks.filter(t => !t.isKR && t.krIdx === ki);
+      const krTasks = objTasks.filter(t => !t.isKR && t.krIdx === ki && !t.isSubtask);
       krTasks.forEach(t => {
         taskOptions += '<label style="display:flex;align-items:center;gap:8px;padding:4px 0 3px 24px;cursor:pointer;font-size:13px"><input type="checkbox" value="' + t._idx + '" id="pick-t-' + t._idx + '"><span>✏️ ' + escHtml(t.title) + '</span></label>';
+        // 子任务挂在对应任务下面
+        const subItems = objTasks.filter(st => st.isSubtask && st.krIdx === ki && st.taskIdx === t.taskIdx);
+        subItems.forEach(st => {
+          taskOptions += '<label style="display:flex;align-items:center;gap:8px;padding:3px 0 3px 38px;cursor:pointer;font-size:12px"><input type="checkbox" value="' + st._idx + '" id="pick-t-' + st._idx + '"><span style="color:var(--text-muted)">▸ ' + escHtml(st.title) + '</span></label>';
+        });
       });
     });
   });
@@ -438,6 +448,9 @@ async function confirmPickToday() {
     if (t.isKR) {
       // 选择的是 KR 级别
       _todayItems.push({ title: t.title, done: false, source: 'okr', objTitle: t.objTitle, krRef: { objId: t.objId, krIdx: t.krIdx } });
+    } else if (t.isSubtask) {
+      // 选择的是子任务级别
+      _todayItems.push({ title: t.title, done: false, source: 'okr', objTitle: t.objTitle, subtaskRef: { objId: t.objId, krIdx: t.krIdx, taskIdx: t.taskIdx, subIdx: t.subIdx } });
     } else {
       // 选择的是任务级别
       _todayItems.push({ title: t.title, done: false, source: 'okr', objTitle: t.objTitle, taskRef: { objId: t.objId, krIdx: t.krIdx, taskIdx: t.taskIdx } });
@@ -1555,16 +1568,14 @@ async function loadReviewDataSummary() {
     }
   });
 
-  // 5. 备忘完成统计（从 daily_items 中提取 memo 类型）
+  // 5. 备忘完成统计（从持久存储中提取 memo 类型，按 doneAt 月份过滤）
   let memoTotal = 0, memoDone = 0;
-  const { data: dailyData } = await sb.from('daily_items').select('items,date').gte('date', startDate).lte('date', endDate);
-  (dailyData || []).forEach(d => {
-    (d.items || []).forEach(function(it) {
-      if (it.type === 'memo') {
-        memoTotal++;
-        if (it.done) memoDone++;
-      }
-    });
+  const { data: dailyData } = await sb.from('daily_items').select('*').eq('date', '_current').single();
+  (dailyData && dailyData.items || []).forEach(function(it) {
+    if (it.type === 'memo') {
+      memoTotal++;
+      if (it.done && it.doneAt && it.doneAt.slice(0, 7) === _reviewPeriod) memoDone++;
+    }
   });
 
   renderReviewDataSummary({ okrDone, okrTotal, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
@@ -4375,9 +4386,8 @@ function toggleSidebar(show) {
 async function loadDashboard() {
   if (!sb) return;
 
-  // 加载今日3件事
-  const today = new Date().toISOString().slice(0,10);
-  const { data: items } = await sb.from('daily_items').select('*').eq('date', today).single();
+  // 加载今日3件事（持久保留）
+  const { data: items } = await sb.from('daily_items').select('*').eq('date', '_current').single();
   if (items && items.items && items.items.length > 0) {
     const todayItems = items.items.filter(i => i.type !== 'memo');
     if (todayItems.length > 0) {
