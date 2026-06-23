@@ -1620,7 +1620,7 @@ function renderReviewDataSummary(stats) {
         var barColor = pct >= 70 ? 'var(--accent)' : pct >= 30 ? '#f59e0b' : '#e0e0e0';
         return '<div class="rv-okr-row"><span class="rv-okr-name" title="' + escHtml(obj.title) + '">' + escHtml(obj.title) + '</span><div class="rv-okr-bar-wrap"><div class="rv-okr-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div><span class="rv-okr-count">' + obj.done + '/' + obj.total + '</span></div>';
       }).join('') + '</div>'
-    : '') +
+    : '<div class="rv-okr-detail"><div class="rv-okr-detail-title">🎯 各目标进度</div><div style="font-size:12px;color:var(--text-muted);padding:8px 0">暂无当期 OKR 数据。请确认目标已设置「所属月份」或「所属季度」与当前复盘月份一致。</div></div>') +
     // 习惯打卡明细
     (stats.habitsDetail && stats.habitsDetail.length > 0 ?
       '<div class="rv-habit-detail"><div class="rv-habit-detail-title">🔥 习惯打卡明细</div>' +
