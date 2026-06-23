@@ -1515,31 +1515,37 @@ async function loadReviewDataSummary() {
   const startDate = _reviewPeriod + '-01';
   const endDate = y + '-' + m + '-' + String(new Date(parseInt(y), parseInt(m), 0).getDate()).padStart(2, '0');
 
-  // 1. OKR 任务+子任务完成数（只统计当期目标，子任务也算）
-  let okrDone = 0;
+  // 1. OKR 任务+子任务完成数（当期目标 + 子任务纳入 + 进度条显示总进度）
+  let okrMonthDone = 0;  // 本月完成数（汇总卡用）
   let okrTotal = 0;
-  let okrDetail = []; // 每个目标的进度明细
+  let okrDetail = []; // 每个目标的进度明细（总进度）
+  const [ry, rm] = _reviewPeriod.split('-');
+  const rq = 'Q' + Math.ceil(parseInt(rm) / 3); // 从月份推算季度，如 "06" → "Q2"
   const { data: okrs } = await sb.from('okrs').select('*');
   (okrs || []).forEach(o => {
-    // 只统计当期（period_m 匹配）的 OKR，如果没有 period_m 则不限制
-    if (o.period_m && o.period_m !== _reviewPeriod) return;
-    let objDone = 0, objTotal = 0;
+    // 筛选当期目标：月份匹配 或 季度匹配 或 都没设（兼容旧数据）
+    let inPeriod = !o.period_m || o.period_m === _reviewPeriod;
+    if (!inPeriod && o.period_q) {
+      inPeriod = (o.period_q === ry + '-' + rq); // 如 "2026-Q2"
+    }
+    if (!inPeriod) return;
+    let objAllDone = 0, objAllTotal = 0;
     (o.key_results || []).forEach(kr => {
       (kr.tasks || []).forEach(t => {
-        objTotal++;
-        let taskDone = !!(t.done && t.doneAt && t.doneAt.slice(0, 7) === _reviewPeriod);
-        if (taskDone) { okrDone++; objDone++; }
+        objAllTotal++;
+        if (t.done) objAllDone++;
+        if (t.done && t.doneAt && t.doneAt.slice(0, 7) === _reviewPeriod) okrMonthDone++;
         // 子任务也统计
         (t.subtasks || []).forEach(st => {
-          objTotal++;
-          let stDone = !!(st.done && st.doneAt && st.doneAt.slice(0, 7) === _reviewPeriod);
-          if (stDone) { okrDone++; objDone++; }
+          objAllTotal++;
+          if (st.done) objAllDone++;
+          if (st.done && st.doneAt && st.doneAt.slice(0, 7) === _reviewPeriod) okrMonthDone++;
         });
       });
     });
-    if (objTotal > 0) {
-      okrTotal += objTotal;
-      okrDetail.push({ title: o.title, done: objDone, total: objTotal });
+    if (objAllTotal > 0) {
+      okrTotal += objAllTotal;
+      okrDetail.push({ title: o.title, done: objAllDone, total: objAllTotal });
     }
   });
 
@@ -1590,17 +1596,18 @@ async function loadReviewDataSummary() {
     }
   });
 
-  renderReviewDataSummary({ okrDone, okrTotal, okrDetail: okrDetail, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
+  renderReviewDataSummary({ okrMonthDone: okrMonthDone, okrTotal, okrDetail: okrDetail, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
 }
 
 function renderReviewDataSummary(stats) {
   const el = document.getElementById('review-summary');
   if (!el) return;
-  const okrPct = stats.okrTotal > 0 ? Math.round(stats.okrDone / stats.okrTotal * 100) : 0;
+  const okrAllDone = (stats.okrDetail || []).reduce(function(s, o) { return s + o.done; }, 0);
+  const okrPct = stats.okrTotal > 0 ? Math.round(okrAllDone / stats.okrTotal * 100) : 0;
   const daysInMonth = new Date(parseInt(_reviewPeriod.split('-')[0]), parseInt(_reviewPeriod.split('-')[1]), 0).getDate();
 
   el.innerHTML =
-    '<div class="rv-summary-card"><div class="rv-summary-icon">🎯</div><div class="rv-summary-num">' + okrPct + '%</div><div class="rv-summary-label">OKR 完成率</div><div class="rv-summary-sub">' + stats.okrDone + ' / ' + stats.okrTotal + ' 个任务</div></div>' +
+    '<div class="rv-summary-card"><div class="rv-summary-icon">🎯</div><div class="rv-summary-num">' + okrPct + '%</div><div class="rv-summary-label">OKR 完成率</div><div class="rv-summary-sub">本月完成 ' + stats.okrMonthDone + ' · 共 ' + stats.okrTotal + ' 个任务</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">🔥</div><div class="rv-summary-num">' + stats.habitDays + '</div><div class="rv-summary-label">习惯打卡天数</div><div class="rv-summary-sub">本月共 ' + daysInMonth + ' 天</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">📔</div><div class="rv-summary-num">' + stats.diaryCount + '</div><div class="rv-summary-label">日记篇数</div><div class="rv-summary-sub">本月写了 ' + stats.diaryCount + ' 篇</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">💡</div><div class="rv-summary-num">' + stats.inspPracticed + '</div><div class="rv-summary-label">灵感实践</div><div class="rv-summary-sub">收集 ' + stats.inspCollected + ' · 实践 ' + stats.inspPracticed + '</div></div>' +
