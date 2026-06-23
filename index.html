@@ -301,8 +301,8 @@ function onOKRPeriodChange() {
 // ===== 今日 3 件事 =====
 async function loadTodayItems() {
   if (!sb) return;
-  // 持久保留，不按天清空；用固定 key '_current'
-  const { data } = await sb.from('daily_items').select('*').eq('date', '_current').single();
+  // 持久保留，不按天清空；用固定 key '2099-12-31'
+  const { data } = await sb.from('daily_items').select('*').eq('date', '2099-12-31').single();
   const allItems = (data && data.items) ? data.items : [];
   _todayItems = allItems.filter(function(it) { return it.type !== 'memo'; });
   _memoItems = allItems.filter(function(it) { return it.type === 'memo'; });
@@ -377,12 +377,12 @@ async function saveTodayItems() {
     console.warn('⚠️ Supabase 未连接，今日事项/备忘录无法保存');
     return;
   }
-  // 持久保留，用固定 key '_current'
+  // 持久保留，用固定 key '2099-12-31'
   // 注意：不直接修改 _memoItems 原对象，创建副本
   const memos = _memoItems.map(function(m) { return Object.assign({}, m, { type: 'memo' }); });
   const allItems = _todayItems.concat(memos);
   try {
-    const { error } = await sb.from('daily_items').upsert({ date: '_current', items: allItems }, { onConflict: 'date' });
+    const { error } = await sb.from('daily_items').upsert({ date: '2099-12-31', items: allItems }, { onConflict: 'date' });
     if (error) {
       console.error('保存今日事项失败：', error.message);
       _showToast('⚠️ 保存失败：' + error.message);
@@ -1638,7 +1638,7 @@ async function loadReviewDataSummary() {
 
   // 5. 备忘完成统计（从持久存储中提取 memo 类型，按 doneAt 月份过滤）
   let memoTotal = 0, memoDone = 0;
-  const { data: dailyData } = await sb.from('daily_items').select('*').eq('date', '_current').single();
+  const { data: dailyData } = await sb.from('daily_items').select('*').eq('date', '2099-12-31').single();
   (dailyData && dailyData.items || []).forEach(function(it) {
     if (it.type === 'memo') {
       memoTotal++;
@@ -4738,7 +4738,7 @@ async function loadDashboard() {
   if (!sb) return;
 
   // 加载今日3件事（持久保留）
-  const { data: items } = await sb.from('daily_items').select('*').eq('date', '_current').single();
+  const { data: items } = await sb.from('daily_items').select('*').eq('date', '2099-12-31').single();
   if (items && items.items && items.items.length > 0) {
     const todayItems = items.items.filter(i => i.type !== 'memo');
     if (todayItems.length > 0) {
