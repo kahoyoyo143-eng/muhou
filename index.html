@@ -60,8 +60,18 @@ function renderOKRList() {
     const krs = o.key_results || [];
     const krHTML = krs.length === 0 ? '' : '<div class="okr-kr-list">' + krs.map((kr, ki) => {
       const tasks = kr.tasks || [];
-      const doneCount = tasks.filter(t => t.done).length;
-      const pct = tasks.length > 0 ? Math.round(doneCount / tasks.length * 100) : 0;
+      // 统计任务+子任务完成数
+      let krDoneCount = 0, krTotalCount = 0;
+      tasks.forEach(t => {
+        krTotalCount++;
+        if (t.done) krDoneCount++;
+        (t.subtasks || []).forEach(st => {
+          krTotalCount++;
+          if (st.done) krDoneCount++;
+        });
+      });
+      const doneCount = krDoneCount;
+      const pct = krTotalCount > 0 ? Math.round(krDoneCount / krTotalCount * 100) : 0;
       const taskHTML = '<div class="okr-tasks">' + tasks.map((t, ti) => {
         const doneClass = t.done ? ' done' : '';
         const subtasks = t.subtasks || [];
@@ -256,9 +266,17 @@ async function toggleOKRTask(objId, krIdx, taskIdx, checked) {
 async function toggleOKRSubtask(objId, krIdx, taskIdx, subIdx, checked) {
   const obj = _okrList.find(o => o.id === objId);
   if (!obj) return;
-  obj.key_results[krIdx].tasks[taskIdx].subtasks[subIdx].done = checked;
+  const subtask = obj.key_results[krIdx].tasks[taskIdx].subtasks[subIdx];
+  subtask.done = checked;
+  if (checked) subtask.doneAt = new Date().toISOString();
+  else delete subtask.doneAt;
   await sb.from('okrs').update({ key_results: obj.key_results }).eq('id', objId);
   renderOKRList();
+  // 同步今日3件事
+  await loadTodayItems();
+  renderTodayItems();
+  // 勾掉后同步到日记
+  if (checked && subtask.title) await syncTaskToDiary(subtask.title);
 }
 
 async function syncTaskToDiary(taskTitle) {
@@ -3616,7 +3634,7 @@ textarea { resize: vertical; min-height: 80px; }
    ============================================ */
 .rv-layout {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 300px 1fr;
   gap: 24px;
   align-items: start;
 }
@@ -3625,8 +3643,49 @@ textarea { resize: vertical; min-height: 80px; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
-  position: sticky;
-  top: 0;
+}
+.rv-left .rv-detail-block {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.rv-left .rv-detail-title {
+  font-size: 13px; margin-bottom: 10px;
+}
+.rv-left .rv-okr-name {
+  font-size: 12px; min-width: 70px; max-width: 120px;
+}
+.rv-left .rv-okr-count {
+  font-size: 11px; min-width: 28px;
+}
+.rv-left .rv-okr-bar-wrap {
+  height: 8px;
+}
+.rv-left .rv-okr-row {
+  padding: 5px 0; gap: 6px;
+}
+.rv-left .rv-done-row {
+  font-size: 12px; padding: 4px 0; gap: 6px;
+}
+.rv-left .rv-done-date {
+  font-size: 10px; min-width: 58px;
+}
+.rv-left .rv-habit-row {
+  padding: 4px 0; gap: 6px;
+}
+.rv-left .rv-habit-name {
+  font-size: 12px; min-width: 50px;
+}
+.rv-left .rv-habit-emoji {
+  font-size: 14px; width: 22px;
+}
+.rv-left .rv-habit-bar-wrap {
+  height: 6px;
+}
+.rv-left .rv-habit-count {
+  font-size: 11px; min-width: 26px;
+}
+.rv-left .rv-insp-group-title {
+  font-size: 11px; margin: 8px 0 4px; padding-top: 6px;
 }
 .rv-left label {
   display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;
@@ -3802,7 +3861,6 @@ textarea { resize: vertical; min-height: 80px; }
 
 @media (max-width: 768px) {
   .rv-layout { grid-template-columns: 1fr; }
-  .rv-left { position: static; }
   .rv-summary { grid-template-columns: repeat(2, 1fr); }
   .rv-textarea { min-height: 100px; font-size: 13px; }
   .rv-okr-name { min-width: 80px; max-width: 120px; font-size: 12px; }
@@ -4332,10 +4390,10 @@ textarea { resize: vertical; min-height: 80px; }
         <select id="review-period-select" onchange="selectReviewPeriod(this.value)"></select>
         <div class="rv-history-title">📋 历史复盘</div>
         <div id="review-history"><div class="card-empty" style="font-size:12px">加载中...</div></div>
+        <div id="review-details"></div>
       </div>
       <div class="rv-right">
         <div class="rv-summary" id="review-summary"></div>
-        <div id="review-details"></div>
         <div id="review-form"></div>
       </div>
     </div>
