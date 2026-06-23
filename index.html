@@ -10,6 +10,7 @@
 let _okrList = [];
 let _habitList = [];
 let _todayItems = [];
+let _memoItems = [];
 let _okrPeriodQ = '2026-Q2';
 let _okrPeriodM = '2026-06';
 let _habitCalMonth = new Date().getMonth(); // 0-based
@@ -284,8 +285,11 @@ async function loadTodayItems() {
   if (!sb) return;
   const today = new Date().toISOString().slice(0, 10);
   const { data } = await sb.from('daily_items').select('*').eq('date', today).single();
-  _todayItems = (data && data.items) ? data.items : [];
+  const allItems = (data && data.items) ? data.items : [];
+  _todayItems = allItems.filter(function(it) { return it.type !== 'memo'; });
+  _memoItems = allItems.filter(function(it) { return it.type === 'memo'; });
   renderTodayItems();
+  renderMemoItems();
 }
 
 function renderTodayItems() {
@@ -316,10 +320,54 @@ async function removeTodayItem(i) {
   renderTodayItems();
 }
 
+// ===== 备忘录 =====
+function renderMemoItems() {
+  const el = document.getElementById('memo-list');
+  if (!el) return;
+  if (_memoItems.length === 0) {
+    el.innerHTML = '<div class="card-empty" style="font-size:12px;padding:2px 0">暂无备忘</div>';
+    return;
+  }
+  el.innerHTML = _memoItems.map(function(item, i) {
+    const doneClass = item.done ? ' done' : '';
+    return '<div class="memo-item' + doneClass + '"><input type="checkbox" ' + (item.done ? 'checked' : '') + ' onchange="toggleMemoItem(' + i + ',this.checked)"><span class="memo-label">' + escHtml(item.title) + '</span><button class="memo-remove" onclick="removeMemoItem(' + i + ')">✕</button></div>';
+  }).join('');
+}
+
+async function addMemo() {
+  const input = document.getElementById('memo-input');
+  if (!input || !input.value.trim()) return;
+  _memoItems.push({ title: input.value.trim(), done: false, doneAt: null, type: 'memo' });
+  input.value = '';
+  await saveMemoItems();
+  renderMemoItems();
+}
+
+async function toggleMemoItem(i, checked) {
+  _memoItems[i].done = checked;
+  _memoItems[i].doneAt = checked ? new Date().toISOString() : null;
+  await saveMemoItems();
+  renderMemoItems();
+}
+
+async function removeMemoItem(i) {
+  _memoItems.splice(i, 1);
+  await saveMemoItems();
+  renderMemoItems();
+}
+
 async function saveTodayItems() {
   if (!sb) return;
   const today = new Date().toISOString().slice(0, 10);
-  await sb.from('daily_items').upsert({ date: today, items: _todayItems }, { onConflict: 'date' });
+  // 合并今日事项 + 备忘，注记类型便于复盘查询
+  const memos = _memoItems.map(function(m) { m.type = 'memo'; return m; });
+  const allItems = _todayItems.concat(memos);
+  await sb.from('daily_items').upsert({ date: today, items: allItems }, { onConflict: 'date' });
+}
+
+async function saveMemoItems() {
+  // 用同一个函数保存，避免重复
+  await saveTodayItems();
 }
 
 async function pickTodayItems() {
@@ -1507,7 +1555,19 @@ async function loadReviewDataSummary() {
     }
   });
 
-  renderReviewDataSummary({ okrDone, okrTotal, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail });
+  // 5. 备忘完成统计（从 daily_items 中提取 memo 类型）
+  let memoTotal = 0, memoDone = 0;
+  const { data: dailyData } = await sb.from('daily_items').select('items,date').gte('date', startDate).lte('date', endDate);
+  (dailyData || []).forEach(d => {
+    (d.items || []).forEach(function(it) {
+      if (it.type === 'memo') {
+        memoTotal++;
+        if (it.done) memoDone++;
+      }
+    });
+  });
+
+  renderReviewDataSummary({ okrDone, okrTotal, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
 }
 
 function renderReviewDataSummary(stats) {
@@ -1521,6 +1581,7 @@ function renderReviewDataSummary(stats) {
     '<div class="rv-summary-card"><div class="rv-summary-icon">🔥</div><div class="rv-summary-num">' + stats.habitDays + '</div><div class="rv-summary-label">习惯打卡天数</div><div class="rv-summary-sub">本月共 ' + daysInMonth + ' 天</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">📔</div><div class="rv-summary-num">' + stats.diaryCount + '</div><div class="rv-summary-label">日记篇数</div><div class="rv-summary-sub">本月写了 ' + stats.diaryCount + ' 篇</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">💡</div><div class="rv-summary-num">' + stats.inspPracticed + '</div><div class="rv-summary-label">灵感实践</div><div class="rv-summary-sub">收集 ' + stats.inspCollected + ' · 实践 ' + stats.inspPracticed + '</div></div>' +
+    '<div class="rv-summary-card"><div class="rv-summary-icon">📝</div><div class="rv-summary-num">' + stats.memoDone + '</div><div class="rv-summary-label">备忘完成</div><div class="rv-summary-sub">共 ' + stats.memoTotal + ' 条 · 完成 ' + stats.memoDone + '</div></div>' +
     // 习惯打卡明细
     (stats.habitsDetail && stats.habitsDetail.length > 0 ?
       '<div class="rv-habit-detail"><div class="rv-habit-detail-title">🔥 习惯打卡明细</div>' +
@@ -2822,7 +2883,10 @@ textarea { resize: vertical; min-height: 80px; }
 /* OKR 目标卡片 */
 .okr-objective {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
+  border-radius: var(--radius); padding: 14px; margin-bottom: 0;
+}
+#okr-list {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;
 }
 .okr-o-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .okr-o-title { font-size: 15px; font-weight: 600; flex: 1; cursor: pointer; }
@@ -2913,7 +2977,7 @@ textarea { resize: vertical; min-height: 80px; }
 .btn-accent-sm:hover { opacity: 0.85; }
 
 /* 今日3件事 */
-.today-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.today-pick { display: flex; flex-direction: column; gap: 6px; }
 .today-item {
   display: flex; align-items: center; gap: 8px; padding: 7px 8px;
   background: rgba(255,255,255,0.02); border-radius: 6px; font-size: 13px;
@@ -2928,6 +2992,32 @@ textarea { resize: vertical; min-height: 80px; }
   padding: 2px 4px; opacity: 0; transition: opacity 0.15s;
 }
 .today-item:hover .today-remove { opacity: 1; }
+
+/* 备忘录 */
+.today-memo-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.today-half h3, .memo-half h3 { font-size: 14px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
+.memo-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.memo-item {
+  display: flex; align-items: center; gap: 8px; padding: 5px 6px;
+  border-radius: 4px; font-size: 13px; border: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.memo-item:hover { border-color: var(--border); }
+.memo-item input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+.memo-item.done .memo-label { text-decoration: line-through; color: var(--text-muted); }
+.memo-label { flex: 1; }
+.memo-remove {
+  font-size: 10px; color: var(--text-muted); cursor: pointer; background: none; border: none;
+  padding: 2px 4px; opacity: 0; transition: opacity 0.15s;
+}
+.memo-item:hover .memo-remove { opacity: 1; }
+.memo-remove:hover { color: var(--danger); }
+.memo-add-row { display: flex; gap: 6px; }
+.memo-add-row input {
+  flex: 1; padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font-size: 12px; font-family: var(--font);
+}
+.memo-add-row input:focus { outline: none; border-color: var(--accent); }
 
 /* 座右铭 */
 .motto-banner {
@@ -3096,6 +3186,8 @@ textarea { resize: vertical; min-height: 80px; }
 @media (max-width: 768px) {
   .okr-layout { grid-template-columns: 1fr; }
   .okr-progress-bar { flex: 0 0 60px; }
+  .today-memo-row { grid-template-columns: 1fr; }
+  #okr-list { grid-template-columns: 1fr; }
 }
 
 /* ============================================
@@ -3460,8 +3552,8 @@ textarea { resize: vertical; min-height: 80px; }
 /* 数据汇总卡片 */
 .rv-summary {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
   margin-bottom: 24px;
 }
 .rv-summary-card {
@@ -3949,9 +4041,21 @@ textarea { resize: vertical; min-height: 80px; }
       <!-- 左栏：OKR -->
       <div class="okr-left">
         <div class="okr-block" id="today-block">
-          <h3>📌 今日 3 件事</h3>
-          <div class="today-pick" id="today-list"></div>
-          <button class="btn-sm" style="margin-top:8px" onclick="pickTodayItems()">+ 从 OKR 任务中选择</button>
+          <div class="today-memo-row">
+            <div class="today-half">
+              <h3>📌 今日 3 件事</h3>
+              <div class="today-pick" id="today-list"></div>
+              <button class="btn-sm" style="margin-top:8px" onclick="pickTodayItems()">+ 从 OKR 任务中选择</button>
+            </div>
+            <div class="memo-half">
+              <h3>📝 备忘录</h3>
+              <div class="memo-list" id="memo-list"></div>
+              <div class="memo-add-row">
+                <input type="text" id="memo-input" placeholder="添加备忘..." onkeydown="if(event.key==='Enter')addMemo()">
+                <button class="btn-sm" onclick="addMemo()">+</button>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="okr-period-bar">
           <span style="color:var(--text-muted)">周期：</span>
@@ -4275,7 +4379,9 @@ async function loadDashboard() {
   const today = new Date().toISOString().slice(0,10);
   const { data: items } = await sb.from('daily_items').select('*').eq('date', today).single();
   if (items && items.items && items.items.length > 0) {
-    document.getElementById('dash-today').innerHTML = items.items.map(i => {
+    const todayItems = items.items.filter(i => i.type !== 'memo');
+    if (todayItems.length > 0) {
+      document.getElementById('dash-today').innerHTML = todayItems.map(i => {
       const srcLabel = i.objTitle ? '← ' + escHtml(i.objTitle) : (i.source === 'okr' ? 'OKR' : '自定义');
       return `<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
         <input type="checkbox" ${i.done?'checked':''} disabled style="accent-color:var(--accent)">
@@ -4283,6 +4389,7 @@ async function loadDashboard() {
         <span class="badge">${srcLabel}</span>
       </div>`;
     }).join('');
+    }
   }
 
   // 加载今日习惯
