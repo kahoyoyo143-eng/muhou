@@ -868,15 +868,10 @@ async function loadInspData() {
   const { data, error } = await sb.from('inspirations').select('*').order('created_at', { ascending: false });
   if (error) { console.error('加载灵感失败:', error); return; }
   _inspList = data || [];
-  // 如果有待跳转的标签筛选，保留它；否则重置
-  if (window._tgPendingTag) {
-    _inspFilter = { status: 'all', tag: window._tgPendingTag, search: '' };
-    window._tgPendingTag = null;
-  } else {
-    _inspFilter = { status: 'all', tag: null, search: '' };
-  }
+  _inspFilter = { status: 'all', tag: null, search: '' };
   document.getElementById('insp-search').value = '';
   document.querySelectorAll('.insp-status-tab').forEach(t => t.classList.toggle('active', t.dataset.status === 'all'));
+  renderInspStats();
   renderInspGrid();
   renderInspTags();
 }
@@ -944,6 +939,22 @@ function renderInspGrid() {
       '</div>' +
     '</div>';
   }).join('');
+}
+
+function renderInspStats() {
+  var el = document.getElementById('insp-stats-bar');
+  if (!el) return;
+  var totalTags = {};
+  _inspList.forEach(function(i) {
+    (i.tags || []).forEach(function(t) { totalTags[t] = true; });
+  });
+  var tagCount = Object.keys(totalTags).length;
+  var total = _inspList.length;
+  var practiced = _inspList.filter(function(it) { return it.status === 'practiced'; }).length;
+  var noted = _inspList.filter(function(it) { return it.status === 'noted'; }).length;
+  var collected = _inspList.filter(function(it) { return it.status === 'collected'; }).length;
+  if (total === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = '🏷️ <b>' + tagCount + '</b> 个标签 · 💡 <b>' + total + '</b> 条灵感 · ✅ <b>' + practiced + '</b> 已实践 · 📝 <b>' + noted + '</b> 已笔记 · 📥 <b>' + collected + '</b> 刚收集';
 }
 
 function renderInspTags() {
@@ -1102,7 +1113,7 @@ async function setupQuickCapture() {
 
 async function submitQuickCapture() {
   const input = document.getElementById('quick-input');
-  const btn = document.querySelector('.quick-capture-area .btn');
+  const btn = document.querySelector('#page-capture .cr-left .btn');
   if (!input) return;
   const title = input.value.trim();
   if (!title) return;
@@ -1149,7 +1160,7 @@ async function renderQuickRecent() {
     return;
   }
   el.innerHTML = data.map(i =>
-    '<div class="quick-item"><span>' + escHtml(i.title) + '</span><span style="display:flex;align-items:center;gap:8px"><span class="quick-item-time">' + (i.created_at ? new Date(i.created_at).toLocaleDateString('zh-CN') : '') + '</span><button class="tg-act-btn danger" onclick="event.stopPropagation();deleteQuickItem(' + i.id + ')" title="删除" style="font-size:11px">🗑️</button></span></div>'
+    '<div class="quick-item"><span>' + escHtml(i.title) + '</span><span style="display:flex;align-items:center;gap:8px"><span class="quick-item-time">' + (i.created_at ? new Date(i.created_at).toLocaleDateString('zh-CN') : '') + '</span><button class="quick-item-del" onclick="event.stopPropagation();deleteQuickItem(\'' + i.id + '\')" title="删除">🗑️</button></span></div>'
   ).join('');
 }
 
@@ -2354,284 +2365,7 @@ function revisitCard(index) {
   setTimeout(function() { card.classList.add('flipped'); }, 80);
 }
 
-// ===== 标签管理 =====
-let _tgCounts = {};
-let _tgStatusCounts = {};   // { tag: { practiced, noted, collected, archived } }
-let _tgCoOccur = {};        // { tag: { otherTag: count } }
-let _tgAllTags = [];
-let _tgExpanded = null;
-let _tgInspirations = [];
-
-async function loadTagsPage() {
-  if (!sb) { document.getElementById('tg-cloud').innerHTML = '<div class="tg-cloud-empty">⚠️ 请先配置 Supabase 连接</div>'; return; }
-  await buildTagCounts();
-  renderTagStats();
-  renderTagCloud();
-  renderTagList();
-}
-
-function renderTagStats() {
-  var el = document.getElementById('tg-stats-bar');
-  if (!el) return;
-  var totalTags = _tgAllTags.length;
-  var totalItems = _tgInspirations.length;
-  var totalPracticed = _tgInspirations.filter(function(it) { return it.status === 'practiced'; }).length;
-  var totalNoted = _tgInspirations.filter(function(it) { return it.status === 'noted'; }).length;
-  var totalCollected = _tgInspirations.filter(function(it) { return it.status === 'collected'; }).length;
-  if (totalTags === 0) { el.innerHTML = ''; return; }
-  el.innerHTML = '<div class="tg-stat-item">🏷️ <b>' + totalTags + '</b> 个标签</div>' +
-    '<div class="tg-stat-item">💡 <b>' + totalItems + '</b> 条灵感</div>' +
-    '<div class="tg-stat-item">✅ <b>' + totalPracticed + '</b> 已实践</div>' +
-    '<div class="tg-stat-item">📝 <b>' + totalNoted + '</b> 已笔记</div>' +
-    '<div class="tg-stat-item">📥 <b>' + totalCollected + '</b> 刚收集</div>';
-}
-
-async function buildTagCounts() {
-  var { data } = await sb.from('inspirations').select('id,title,content,status,tags,created_at').order('created_at', { ascending: false });
-  _tgInspirations = data || [];
-  _tgCounts = {};
-  _tgStatusCounts = {};
-  _tgCoOccur = {};
-  _tgInspirations.forEach(function(item) {
-    var tags = (item.tags || []).map(function(t) { return t.trim(); }).filter(Boolean);
-    var status = item.status || 'collected';
-    tags.forEach(function(tag) {
-      // 总数
-      _tgCounts[tag] = (_tgCounts[tag] || 0) + 1;
-      // 按状态统计
-      if (!_tgStatusCounts[tag]) _tgStatusCounts[tag] = { practiced: 0, noted: 0, collected: 0, archived: 0 };
-      _tgStatusCounts[tag][status] = (_tgStatusCounts[tag][status] || 0) + 1;
-    });
-    // 标签共现：每对标签记一次
-    for (var i = 0; i < tags.length; i++) {
-      for (var j = i + 1; j < tags.length; j++) {
-        var a = tags[i], b = tags[j];
-        if (!_tgCoOccur[a]) _tgCoOccur[a] = {};
-        if (!_tgCoOccur[b]) _tgCoOccur[b] = {};
-        _tgCoOccur[a][b] = (_tgCoOccur[a][b] || 0) + 1;
-        _tgCoOccur[b][a] = (_tgCoOccur[b][a] || 0) + 1;
-      }
-    }
-  });
-  // 排序：优先按"已实践"数量，再按总数
-  _tgAllTags = Object.keys(_tgCounts).sort(function(a, b) {
-    var aPracticed = (_tgStatusCounts[a] && _tgStatusCounts[a].practiced) || 0;
-    var bPracticed = (_tgStatusCounts[b] && _tgStatusCounts[b].practiced) || 0;
-    if (bPracticed !== aPracticed) return bPracticed - aPracticed;
-    return _tgCounts[b] - _tgCounts[a];
-  });
-}
-
-function tagFontSize(count) {
-  if (count >= 13) return 20;
-  if (count >= 8) return 18;
-  if (count >= 5) return 16;
-  if (count >= 3) return 14;
-  if (count >= 2) return 13;
-  return 12;
-}
-
-function renderTagCloud() {
-  var el = document.getElementById('tg-cloud');
-  if (!el) return;
-  if (_tgAllTags.length === 0) {
-    el.innerHTML = '<div class="tg-cloud-empty">还没有标签，去灵感库给灵感打上标签吧 🏷️</div>';
-    return;
-  }
-  el.innerHTML = _tgAllTags.map(function(tag) {
-    var size = tagFontSize(_tgCounts[tag]);
-    var opacity = 0.6 + (_tgCounts[tag] / Math.max.apply(null, Object.values(_tgCounts))) * 0.4;
-    return '<span class="tg-cloud-tag" style="font-size:' + size + 'px;opacity:' + opacity.toFixed(2) + '" onclick="toggleTagExpand(\'' + escAttr(tag) + '\')" title="' + escAttr(tag) + ' (' + _tgCounts[tag] + ')">' + escHtml(tag) + '<span style="font-size:10px;margin-left:4px;opacity:0.6">' + _tgCounts[tag] + '</span></span>';
-  }).join('');
-}
-
-function renderTagList() {
-  var el = document.getElementById('tg-list');
-  if (!el) return;
-  if (_tgAllTags.length === 0) { el.innerHTML = ''; return; }
-
-  el.innerHTML = _tgAllTags.map(function(tag) {
-    var isExpanded = _tgExpanded === tag;
-    var count = _tgCounts[tag];
-    var st = _tgStatusCounts[tag] || { practiced: 0, noted: 0, collected: 0, archived: 0 };
-    var rowClass = isExpanded ? ' tg-row expanded' : '';
-    // 状态统计小标签
-    var statusBadges = '';
-    if (st.practiced > 0) statusBadges += '<span class="tg-st-badge practiced">✅' + st.practiced + '</span>';
-    if (st.noted > 0) statusBadges += '<span class="tg-st-badge noted">📝' + st.noted + '</span>';
-    if (st.collected > 0) statusBadges += '<span class="tg-st-badge collected">📥' + st.collected + '</span>';
-    return '<div class="tg-row' + rowClass + '" id="tg-row-' + escAttr(tag) + '">' +
-      '<div class="tg-row-tag" onclick="toggleTagExpand(\'' + escAttr(tag) + '\')">📌 <span id="tg-name-' + escAttr(tag) + '">' + escHtml(tag) + '</span></div>' +
-      '<span class="tg-st-badges">' + statusBadges + '</span>' +
-      '<span class="tg-row-count">' + count + ' 条</span>' +
-      '<div class="tg-row-acts">' +
-        '<button class="tg-act-btn" title="在灵感库筛选" onclick="event.stopPropagation();jumpToInspTag(\'' + escAttr(tag) + '\')">🔍</button>' +
-        '<button class="tg-act-btn" title="改名" onclick="event.stopPropagation();startRenameTag(\'' + escAttr(tag) + '\')">✏️</button>' +
-        '<button class="tg-act-btn" title="合并到其他标签" onclick="event.stopPropagation();startMergeTag(\'' + escAttr(tag) + '\')">🔄</button>' +
-        '<button class="tg-act-btn danger" title="删除" onclick="event.stopPropagation();confirmDeleteTag(\'' + escAttr(tag) + '\')">🗑️</button>' +
-      '</div></div>' +
-      (isExpanded ? renderTagExpand(tag) : '');
-  }).join('');
-}
-
-function escAttr(s) {
-  return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function renderTagExpand(tag) {
-  var items = _tgInspirations.filter(function(item) { return (item.tags || []).indexOf(tag) >= 0; });
-  if (items.length === 0) return '<div class="tg-expand"><span style="font-size:12px;color:var(--text-muted)">没有找到相关灵感</span></div>';
-
-  var statusLabel = { collected: '刚收集', noted: '已笔记', practiced: '已实践', archived: '已废弃' };
-  var st = _tgStatusCounts[tag] || {};
-
-  // 关联标签（按共现次数排，取前 5）
-  var coOccur = _tgCoOccur[tag] || {};
-  var relatedTags = Object.keys(coOccur).sort(function(a, b) { return coOccur[b] - coOccur[a]; }).slice(0, 5);
-
-  var html = '<div class="tg-expand">';
-  // 状态分布条
-  var total = items.length;
-  if (total > 0) {
-    var pctP = Math.round((st.practiced || 0) / total * 100);
-    var pctN = Math.round((st.noted || 0) / total * 100);
-    var pctC = Math.round((st.collected || 0) / total * 100);
-    html += '<div class="tg-expand-bar-wrap"><div class="tg-expand-stats"><span>✅ 已实践 ' + (st.practiced || 0) + '</span><span>📝 已笔记 ' + (st.noted || 0) + '</span><span>📥 刚收集 ' + (st.collected || 0) + '</span></div>' +
-      '<div class="tg-expand-bar"><div class="tg-expand-bar-p" style="width:' + pctP + '%"></div><div class="tg-expand-bar-n" style="width:' + pctN + '%"></div><div class="tg-expand-bar-c" style="width:' + pctC + '%"></div></div></div>';
-  }
-  // 关联标签
-  if (relatedTags.length > 0) {
-    html += '<div class="tg-expand-related"><span class="tg-expand-related-label">🔗 常一起出现：</span>' +
-      relatedTags.map(function(rt) {
-        return '<span class="tg-related-tag" onclick="event.stopPropagation();toggleTagExpand(\'' + escAttr(rt) + '\')">' + escHtml(rt) + ' (' + coOccur[rt] + ')</span>';
-      }).join('') + '</div>';
-  }
-  // 去灵感库按钮
-  html += '<div class="tg-expand-actions"><button class="btn sm" onclick="event.stopPropagation();jumpToInspTag(\'' + escAttr(tag) + '\')">🔍 在灵感库查看全部 →</button></div>';
-  // 灵感列表（前 10 条）
-  html += '<div class="tg-expand-items">' + items.slice(0, 10).map(function(item) {
-    var title = item.title || '无标题';
-    return '<div class="tg-expand-item" onclick="event.stopPropagation();jumpToInspTag(\'' + escAttr(tag) + '\')" title="去灵感库筛选 ' + escHtml(tag) + '"><span class="status-dot ' + (item.status || 'collected') + '"></span><span>' + escHtml(title) + '</span><span style="color:var(--text-muted);font-size:11px;margin-left:auto">' + (statusLabel[item.status] || '') + '</span></div>';
-  }).join('') + '</div>';
-  if (items.length > 10) {
-    html += '<div class="tg-expand-more">还有 ' + (items.length - 10) + ' 条灵感...</div>';
-  }
-  html += '</div>';
-  return html;
-}
-
-// 跳转到灵感库并筛选指定标签
-function jumpToInspTag(tag) {
-  window._tgPendingTag = tag;
-  switchPage('inspiration');
-}
-
-function toggleTagExpand(tag) {
-  if (_tgExpanded === tag) {
-    _tgExpanded = null;
-  } else {
-    _tgExpanded = tag;
-  }
-  renderTagList();
-}
-
-function startRenameTag(oldName) {
-  var nameSpan = document.getElementById('tg-name-' + escAttr(oldName));
-  if (!nameSpan) return;
-  var currentText = nameSpan.textContent;
-  nameSpan.innerHTML = '<input class="tg-edit-input" id="tg-rename-input" value="' + escAttr(currentText) + '" onkeydown="if(event.key===\'Enter\')confirmRenameTag(\'' + escAttr(oldName) + '\')" onblur="confirmRenameTag(\'' + escAttr(oldName) + '\')">';
-  var input = document.getElementById('tg-rename-input');
-  if (input) { input.focus(); input.select(); }
-}
-
-async function confirmRenameTag(oldName) {
-  var input = document.getElementById('tg-rename-input');
-  if (!input) { renderTagList(); return; }
-  var newName = input.value.trim();
-  if (!newName || newName === oldName) { renderTagList(); return; }
-
-  if (_tgCounts[newName]) {
-    // 目标标签已存在 → 自动变成合并
-    if (!confirm('「' + newName + '」这个标签已经存在了。\n\n要把「' + oldName + '」的 ' + _tgCounts[oldName] + ' 条灵感合并到「' + newName + '」吗？')) {
-      renderTagList(); return;
-    }
-  }
-
-  // 更新所有灵感中的标签
-  await batchUpdateTag(oldName, newName);
-  _tgExpanded = null;
-  await buildTagCounts();
-  renderTagCloud();
-  renderTagList();
-}
-
-function startMergeTag(fromTag) {
-  var actsEl = document.querySelector('#tg-row-' + escAttr(fromTag) + ' .tg-row-acts');
-  if (!actsEl) return;
-  // 检查是否已经有选择器
-  if (document.getElementById('tg-merge-select')) { renderTagList(); return; }
-
-  var otherTags = _tgAllTags.filter(function(t) { return t !== fromTag; });
-  if (otherTags.length === 0) { alert('没有其他标签可以合并'); return; }
-
-  var selectHtml = '<select class="tg-merge-select" id="tg-merge-select" onchange="confirmMergeTag(\'' + escAttr(fromTag) + '\')"><option value="">合并到...</option>' +
-    otherTags.map(function(t) { return '<option value="' + escAttr(t) + '">' + escHtml(t) + ' (' + _tgCounts[t] + ')</option>'; }).join('') +
-    '</select>';
-  actsEl.insertAdjacentHTML('afterbegin', selectHtml);
-  document.getElementById('tg-merge-select').focus();
-}
-
-async function confirmMergeTag(fromTag) {
-  var select = document.getElementById('tg-merge-select');
-  if (!select || !select.value) return;
-  var toTag = select.value;
-  if (!confirm('确定把「' + fromTag + '」（' + _tgCounts[fromTag] + ' 条）合并到「' + toTag + '」（' + _tgCounts[toTag] + ' 条）？\n\n合并后「' + fromTag + '」会被删除。')) {
-    renderTagList(); return;
-  }
-
-  await batchUpdateTag(fromTag, toTag);
-  _tgExpanded = null;
-  await buildTagCounts();
-  renderTagCloud();
-  renderTagList();
-}
-
-async function confirmDeleteTag(tagName) {
-  if (!confirm('确定删除标签「' + tagName + '」？\n\n这 ' + _tgCounts[tagName] + ' 条灵感的这个标签会被移除，但灵感本身不会删除。')) return;
-
-  // 把 tagName 替换为 null 表示删除
-  var inspirations = _tgInspirations.filter(function(item) { return (item.tags || []).indexOf(tagName) >= 0; });
-  for (var i = 0; i < inspirations.length; i++) {
-    var item = inspirations[i];
-    var newTags = (item.tags || []).filter(function(t) { return t !== tagName; });
-    await sb.from('inspirations').update({ tags: newTags }).eq('id', item.id);
-  }
-
-  _tgExpanded = null;
-  await buildTagCounts();
-  renderTagCloud();
-  renderTagList();
-}
-
-async function batchUpdateTag(oldName, newName) {
-  var inspirations = _tgInspirations.filter(function(item) { return (item.tags || []).indexOf(oldName) >= 0; });
-  for (var i = 0; i < inspirations.length; i++) {
-    var item = inspirations[i];
-    var newTags = (item.tags || []).map(function(t) { return t === oldName ? newName : t; });
-    // 去重
-    var seen = {};
-    newTags = newTags.filter(function(t) { if (seen[t]) return false; seen[t] = true; return true; });
-    await sb.from('inspirations').update({ tags: newTags }).eq('id', item.id);
-  }
-}
-
-// ===== 工具函数 =====
-function escHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-// ===== Modal 事件委托 =====
+// ===== 日记 =====
 document.addEventListener('DOMContentLoaded', function() {
   var mc = document.getElementById('okr-modal-container');
   if (!mc) return;
@@ -3441,6 +3175,13 @@ textarea { resize: vertical; min-height: 80px; }
 .insp-search-wrap input:focus { border-color: var(--accent); }
 .insp-search-wrap input::placeholder { color: var(--text-muted); }
 
+/* 灵感统计 */
+.insp-stats-bar {
+  display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 12px;
+  font-size: 12px; color: var(--text-muted);
+}
+.insp-stats-bar b { color: var(--text); }
+
 /* 标签栏 */
 .insp-tag-bar {
   display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; align-items: center;
@@ -3517,17 +3258,7 @@ textarea { resize: vertical; min-height: 80px; }
 .insp-card-source:hover { text-decoration: underline; }
 .insp-card-date { margin-left: auto; }
 
-/* 快速捕捉 */
-.quick-capture-area {
-  max-width: 600px; margin: 0 auto;
-}
-.quick-capture-area textarea {
-  width: 100%; min-height: 140px; padding: 14px; border-radius: var(--radius);
-  border: 1px solid var(--border); background: var(--bg); color: var(--text);
-  font-size: 16px; font-family: var(--font); resize: vertical;
-}
-.quick-capture-area textarea:focus { border-color: var(--accent); }
-.quick-capture-area textarea::placeholder { color: var(--text-muted); }
+/* 快速捕捉（在捕捉·回顾左栏内） */
 .quick-hint {
   font-size: 12px; color: var(--text-muted); line-height: 1.6;
 }
@@ -3535,8 +3266,8 @@ textarea { resize: vertical; min-height: 80px; }
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 3px; padding: 1px 6px; font-size: 11px; font-family: var(--font);
 }
-.quick-recent { margin-top: 28px; }
-.quick-recent h3 { font-size: 14px; color: var(--text-muted); margin-bottom: 10px; font-weight: 500; }
+.quick-recent { margin-top: 20px; }
+.quick-recent h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
 .quick-item {
   display: flex; justify-content: space-between; align-items: center;
   padding: 8px 12px; border-radius: 6px; background: var(--surface);
@@ -3545,12 +3276,17 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .quick-item:hover { border-color: var(--text-muted); }
 .quick-item-time { font-size: 11px; color: var(--text-muted); white-space: nowrap; margin-left: 12px; }
+.quick-item-del {
+  width: 24px; height: 24px; border-radius: 4px; border: none;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  font-size: 11px; display: flex; align-items: center; justify-content: center;
+}
+.quick-item-del:hover { background: rgba(224,85,85,0.15); color: var(--danger); }
 
 @media (max-width: 768px) {
   .insp-grid { grid-template-columns: 1fr; }
   .insp-toolbar { flex-direction: column; align-items: stretch; }
   .insp-search-wrap { max-width: none; }
-  .quick-capture-area textarea { min-height: 100px; font-size: 14px; }
 }
 
 /* ============================================
@@ -4218,135 +3954,35 @@ textarea { resize: vertical; min-height: 80px; }
 }
 
 /* ============================================
-   标签管理
+   捕捉·回顾
    ============================================ */
-/* 页面描述 */
-.page-desc { font-size: 13px; color: var(--text-muted); margin: -8px 0 16px 0; }
-
-/* 统计概览 */
-.tg-stats-bar {
-  display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
-  padding: 12px 16px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius);
+.cr-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
 }
-.tg-stat-item { font-size: 13px; color: var(--text-muted); }
-.tg-stat-item b { color: var(--text); }
-
-/* 标签云 */
-.tg-cloud {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  padding: 20px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); margin-bottom: 24px; min-height: 60px;
+.cr-left h3, .cr-right h3 {
+  font-size: 14px; font-weight: 600; margin: 0 0 14px 0; color: var(--text);
 }
-.tg-cloud-tag {
-  display: inline-block; padding: 6px 14px; border-radius: 16px;
-  cursor: pointer; transition: all 0.15s;
-  border: 1px solid var(--border); background: var(--bg);
-  color: var(--text); font-family: var(--font);
+.cr-left textarea {
+  width: 100%; min-height: 120px; padding: 12px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-size: 14px; font-family: var(--font); resize: vertical;
 }
-.tg-cloud-tag:hover {
-  border-color: var(--accent); background: var(--surface-hover);
-  transform: translateY(-1px);
-}
-.tg-cloud-empty {
-  color: var(--text-muted); font-size: 13px; width: 100%; text-align: center;
-}
-
-/* 标签列表 */
-.tg-list { display: flex; flex-direction: column; gap: 2px; }
-.tg-row {
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  border-radius: 8px; cursor: pointer; transition: all 0.12s;
-}
-.tg-row:hover { background: var(--surface-hover); }
-.tg-row.expanded { background: var(--surface); border: 1px solid var(--border); }
-.tg-row-tag {
-  font-size: 14px; font-weight: 500; flex: 1; color: var(--text);
-  display: flex; align-items: center; gap: 8px;
-}
-.tg-row-count {
-  font-size: 12px; color: var(--text-muted);
-  background: var(--bg); padding: 2px 10px; border-radius: 10px;
-}
-.tg-row-acts { display: flex; gap: 4px; align-items: center; }
-.tg-act-btn {
-  width: 28px; height: 28px; border-radius: 6px; border: none;
-  background: transparent; color: var(--text-muted); cursor: pointer;
-  font-size: 13px; display: flex; align-items: center; justify-content: center;
-  transition: all 0.12s;
-}
-.tg-act-btn:hover { background: var(--surface-hover); color: var(--text); }
-.tg-act-btn.danger:hover { background: rgba(224,85,85,0.15); color: var(--danger); }
-
-/* 行内编辑 */
-.tg-edit-input {
-  background: var(--bg); border: 1px solid var(--accent); border-radius: 6px;
-  color: var(--text); font-size: 14px; font-family: var(--font); padding: 4px 8px;
-  width: 140px;
-}
-
-/* 合并选择 */
-.tg-merge-select {
-  background: var(--bg); border: 1px solid var(--accent); border-radius: 6px;
-  color: var(--text); font-size: 12px; font-family: var(--font); padding: 4px 8px;
-  max-width: 120px;
-}
-
-/* 展开的灵感卡片 */
-.tg-expand {
-  padding: 0 14px 14px 36px;
-  display: flex; flex-direction: column; gap: 6px;
-}
-.tg-expand-item {
-  padding: 8px 12px; background: var(--bg); border-radius: 6px;
-  font-size: 13px; color: var(--text-muted); cursor: pointer;
-  transition: all 0.12s;
-  display: flex; align-items: center; gap: 8px;
-}
-.tg-expand-item:hover { color: var(--text); background: var(--surface-hover); }
-.tg-expand-item .status-dot {
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-}
-.tg-expand-item .status-dot.collected { background: #9a8e82; }
-.tg-expand-item .status-dot.noted { background: #6a9dc8; }
-.tg-expand-item .status-dot.practiced { background: #6aad40; }
-.tg-expand-item .status-dot.archived { background: #d94444; }
-
-/* 状态统计小标签 */
-.tg-st-badges { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
-.tg-st-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
-.tg-st-badge.practiced { background: rgba(106,173,64,0.15); color: #5a9e30; }
-.tg-st-badge.noted { background: rgba(106,157,200,0.15); color: #5a8eba; }
-.tg-st-badge.collected { background: rgba(154,142,130,0.15); color: #8a7e72; }
-
-/* 展开-状态分布条 */
-.tg-expand-bar-wrap { margin-bottom: 10px; }
-.tg-expand-stats { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-.tg-expand-bar { display: flex; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
-.tg-expand-bar-p { background: #6aad40; }
-.tg-expand-bar-n { background: #6a9dc8; }
-.tg-expand-bar-c { background: #9a8e82; }
-
-/* 展开-关联标签 */
-.tg-expand-related { margin-bottom: 10px; font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.tg-expand-related-label { white-space: nowrap; }
-.tg-related-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); font-size: 11px; cursor: pointer; transition: all 0.12s; }
-.tg-related-tag:hover { border-color: var(--accent); color: var(--accent); }
-
-/* 展开-操作按钮 */
-.tg-expand-actions { margin-bottom: 8px; }
-.tg-expand-actions .btn.sm { padding: 4px 12px; font-size: 12px; }
-
-/* 展开-灵感列表 */
-.tg-expand-items { display: flex; flex-direction: column; gap: 4px; }
-.tg-expand-more { font-size: 11px; color: var(--text-muted); text-align: center; padding: 4px 0; }
+.cr-left textarea:focus { border-color: var(--accent); }
+.cr-left textarea::placeholder { color: var(--text-muted); }
+.cr-right .rr-card-stage { height: 200px; }
+.cr-right .rr-card-container { height: 200px; }
+.cr-right .rr-card { width: 150px; height: 200px; }
+.cr-right .rr-card-front { padding: 12px; }
+.cr-right .rr-card-type { font-size: 11px; margin-bottom: 4px; }
+.cr-right .rr-card-body { font-size: 12px; }
 
 @media (max-width: 768px) {
-  .tg-cloud { padding: 14px; gap: 6px; }
-  .tg-row { flex-wrap: wrap; }
-  .tg-row-acts { width: 100%; justify-content: flex-end; }
-  .tg-st-badges { order: -1; width: 100%; }
-  .tg-expand-related { flex-direction: column; align-items: flex-start; }
+  .cr-layout { grid-template-columns: 1fr; }
+  .cr-right .rr-card-stage { height: 200px; }
+  .cr-right .rr-card-container { height: 200px; }
 }
 
 </style>
@@ -4365,11 +4001,9 @@ textarea { resize: vertical; min-height: 80px; }
   <a data-page="inspiration" onclick="switchPage('inspiration')"><span class="icon">📥</span>灵感库</a>
   <a data-page="diary" onclick="switchPage('diary')"><span class="icon">📔</span>日记</a>
   <a data-page="review" onclick="switchPage('review')"><span class="icon">📋</span>复盘</a>
+  <a data-page="capture" onclick="switchPage('capture')"><span class="icon">🎲</span>捕捉·回顾</a>
   <a data-page="ai" onclick="switchPage('ai')"><span class="icon">🤖</span>AI助手</a>
-  <a data-page="random" onclick="switchPage('random')"><span class="icon">🎲</span>回顾</a>
-  <a data-page="tags" onclick="switchPage('tags')"><span class="icon">🏷️</span>标签</a>
   <div class="sidebar-divider"></div>
-  <a data-page="quick" onclick="switchPage('quick')"><span class="icon">⚡</span>快速捕捉</a>
   <a data-page="settings" onclick="switchPage('settings')"><span class="icon">⚙️</span>设置</a>
 </nav>
 
@@ -4468,6 +4102,8 @@ textarea { resize: vertical; min-height: 80px; }
   <div class="page" id="page-inspiration">
     <div class="page-title">📥 灵感库</div>
 
+    <div class="insp-stats-bar" id="insp-stats-bar"></div>
+
     <div class="insp-toolbar">
       <div class="insp-status-tabs">
         <button class="insp-status-tab active" data-status="all" onclick="filterByStatus('all')">全部</button>
@@ -4549,71 +4185,51 @@ textarea { resize: vertical; min-height: 80px; }
     <div class="ai-footer">AI 分析基于你现有的数据，仅供参考，最终判断在你手里 ✨</div>
   </div>
 
-  <!-- ========== 🎲 回顾 ========== -->
-  <div class="page" id="page-random">
-    <div class="page-title">🎲 随机回顾</div>
-
-    <!-- 类型筛选 -->
-    <div class="rr-filters" id="rr-filters">
-      <button class="rr-filter-btn active" data-type="all" onclick="setRandomFilter('all')">🎲 全部</button>
-      <button class="rr-filter-btn" data-type="diary" onclick="setRandomFilter('diary')">📔 日记</button>
-      <button class="rr-filter-btn" data-type="inspiration" onclick="setRandomFilter('inspiration')">💡 灵感</button>
-      <button class="rr-filter-btn" data-type="achievement" onclick="setRandomFilter('achievement')">🎯 成就</button>
-    </div>
-
-    <!-- 卡片舞台 -->
-    <div class="rr-card-stage" id="rr-card-stage">
-      <div class="rr-card-container">
-        <div class="rr-card" id="rr-card">
-          <div class="rr-card-back" id="rr-card-back">
-            <div class="rr-back-stars" id="rr-back-stars"></div>
-            <div class="rr-back-symbol">◈</div>
-            <div class="rr-back-text">幕 後</div>
-          </div>
-          <div class="rr-card-front" id="rr-card-front"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 抽卡按钮 -->
-    <div class="rr-draw-area">
-      <button class="rr-draw-btn" id="rr-draw-btn" onclick="drawRandomCard()">✨ 抽一张</button>
-      <div class="rr-draw-hint">从你的创作轨迹中， 随机摘取一片记忆</div>
-    </div>
-
-    <!-- 抽卡历史 -->
-    <div class="rr-history" id="rr-history"></div>
-  </div>
-
-  <!-- ========== 🏷️ 标签 ========== -->
-  <div class="page" id="page-tags">
-    <div class="page-title">🏷️ 标签管理</div>
-    <p class="page-desc">管理灵感标签 · 点击标签展开详情 · 点击🔍跳转灵感库筛选</p>
-
-    <!-- 统计概览 -->
-    <div class="tg-stats-bar" id="tg-stats-bar"></div>
-
-    <!-- 标签云 -->
-    <div class="tg-cloud" id="tg-cloud"></div>
-
-    <!-- 标签列表 -->
-    <div class="tg-list" id="tg-list"></div>
-  </div>
-
-  <!-- ========== ⚡ 快速捕捉 ========== -->
-  <div class="page" id="page-quick">
-    <div class="page-title">⚡ 快速捕捉</div>
-    <div class="quick-capture-area">
-      <textarea id="quick-input" placeholder="脑子里闪过什么？赶紧记下来...
+  <!-- ========== 🎲 捕捉·回顾 ========== -->
+  <div class="page" id="page-capture">
+    <div class="page-title">🎲 捕捉·回顾</div>
+    <div class="cr-layout">
+      <!-- 左：快速捕捉 -->
+      <div class="cr-left">
+        <h3>⚡ 快速捕捉</h3>
+        <textarea id="quick-input" placeholder="脑子里闪过什么？赶紧记下来...
 
 不用想太多，先抓住再说。之后可以去「灵感库」慢慢整理。"></textarea>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
-        <div class="quick-hint">💡 按 <kbd>Ctrl + Enter</kbd> 快速提交</div>
-        <button class="btn accent" onclick="submitQuickCapture()">⚡ 捕捉</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+          <div class="quick-hint">💡 按 <kbd>Ctrl + Enter</kbd> 快速提交</div>
+          <button class="btn accent" onclick="submitQuickCapture()">⚡ 捕捉</button>
+        </div>
+        <div class="quick-recent">
+          <h3>📥 最近捕捉</h3>
+          <div id="quick-recent"><div class="card-empty" style="font-size:13px">加载中...</div></div>
+        </div>
       </div>
-      <div class="quick-recent">
-        <h3>📥 最近捕捉</h3>
-        <div id="quick-recent"><div class="card-empty" style="font-size:13px">加载中...</div></div>
+      <!-- 右：随机回顾 -->
+      <div class="cr-right">
+        <h3>🎲 随机回顾</h3>
+        <div class="rr-filters" id="rr-filters">
+          <button class="rr-filter-btn active" data-type="all" onclick="setRandomFilter('all')">🎲 全部</button>
+          <button class="rr-filter-btn" data-type="diary" onclick="setRandomFilter('diary')">📔 日记</button>
+          <button class="rr-filter-btn" data-type="inspiration" onclick="setRandomFilter('inspiration')">💡 灵感</button>
+          <button class="rr-filter-btn" data-type="achievement" onclick="setRandomFilter('achievement')">🎯 成就</button>
+        </div>
+        <div class="rr-card-stage" id="rr-card-stage">
+          <div class="rr-card-container">
+            <div class="rr-card" id="rr-card">
+              <div class="rr-card-back" id="rr-card-back">
+                <div class="rr-back-stars" id="rr-back-stars"></div>
+                <div class="rr-back-symbol">◈</div>
+                <div class="rr-back-text">幕 後</div>
+              </div>
+              <div class="rr-card-front" id="rr-card-front"></div>
+            </div>
+          </div>
+        </div>
+        <div class="rr-draw-area">
+          <button class="rr-draw-btn" id="rr-draw-btn" onclick="drawRandomCard()">✨ 抽一张</button>
+          <div class="rr-draw-hint">从你的创作轨迹中，随机摘取一片记忆</div>
+        </div>
+        <div class="rr-history" id="rr-history"></div>
       </div>
     </div>
   </div>
@@ -4719,9 +4335,7 @@ function switchPage(name) {
   if (name === 'diary') loadDiaryPage();
   if (name === 'review') loadReviewPage();
   if (name === 'ai') loadAIPage();
-  if (name === 'random') loadRandomPage();
-  if (name === 'tags') loadTagsPage();
-  if (name === 'quick') { setupQuickCapture(); renderQuickRecent(); }
+  if (name === 'capture') { setupQuickCapture(); renderQuickRecent(); loadRandomPage(); }
 }
 
 // ---------- 侧边栏（手机）----------
