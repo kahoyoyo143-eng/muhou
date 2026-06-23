@@ -1515,20 +1515,32 @@ async function loadReviewDataSummary() {
   const startDate = _reviewPeriod + '-01';
   const endDate = y + '-' + m + '-' + String(new Date(parseInt(y), parseInt(m), 0).getDate()).padStart(2, '0');
 
-  // 1. OKR 任务完成数（本月打勾的任务）
+  // 1. OKR 任务+子任务完成数（只统计当期目标，子任务也算）
   let okrDone = 0;
   let okrTotal = 0;
+  let okrDetail = []; // 每个目标的进度明细
   const { data: okrs } = await sb.from('okrs').select('*');
   (okrs || []).forEach(o => {
+    // 只统计当期（period_m 匹配）的 OKR，如果没有 period_m 则不限制
+    if (o.period_m && o.period_m !== _reviewPeriod) return;
+    let objDone = 0, objTotal = 0;
     (o.key_results || []).forEach(kr => {
       (kr.tasks || []).forEach(t => {
-        okrTotal++;
-        if (t.done && t.doneAt) {
-          const doneDate = t.doneAt.slice(0, 7);
-          if (doneDate === _reviewPeriod) okrDone++;
-        }
+        objTotal++;
+        let taskDone = !!(t.done && t.doneAt && t.doneAt.slice(0, 7) === _reviewPeriod);
+        if (taskDone) { okrDone++; objDone++; }
+        // 子任务也统计
+        (t.subtasks || []).forEach(st => {
+          objTotal++;
+          let stDone = !!(st.done && st.doneAt && st.doneAt.slice(0, 7) === _reviewPeriod);
+          if (stDone) { okrDone++; objDone++; }
+        });
       });
     });
+    if (objTotal > 0) {
+      okrTotal += objTotal;
+      okrDetail.push({ title: o.title, done: objDone, total: objTotal });
+    }
   });
 
   // 2. 习惯打卡天数 + 每项明细
@@ -1578,7 +1590,7 @@ async function loadReviewDataSummary() {
     }
   });
 
-  renderReviewDataSummary({ okrDone, okrTotal, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
+  renderReviewDataSummary({ okrDone, okrTotal, okrDetail: okrDetail, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
 }
 
 function renderReviewDataSummary(stats) {
@@ -1593,6 +1605,15 @@ function renderReviewDataSummary(stats) {
     '<div class="rv-summary-card"><div class="rv-summary-icon">📔</div><div class="rv-summary-num">' + stats.diaryCount + '</div><div class="rv-summary-label">日记篇数</div><div class="rv-summary-sub">本月写了 ' + stats.diaryCount + ' 篇</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">💡</div><div class="rv-summary-num">' + stats.inspPracticed + '</div><div class="rv-summary-label">灵感实践</div><div class="rv-summary-sub">收集 ' + stats.inspCollected + ' · 实践 ' + stats.inspPracticed + '</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">📝</div><div class="rv-summary-num">' + stats.memoDone + '</div><div class="rv-summary-label">备忘完成</div><div class="rv-summary-sub">共 ' + stats.memoTotal + ' 条 · 完成 ' + stats.memoDone + '</div></div>' +
+    // 🎯 各 OKR 目标进度条
+    (stats.okrDetail && stats.okrDetail.length > 0 ?
+      '<div class="rv-okr-detail"><div class="rv-okr-detail-title">🎯 各目标进度</div>' +
+      stats.okrDetail.map(function(obj) {
+        var pct = Math.round(obj.done / obj.total * 100);
+        var barColor = pct >= 70 ? 'var(--accent)' : pct >= 30 ? '#f59e0b' : '#e0e0e0';
+        return '<div class="rv-okr-row"><span class="rv-okr-name" title="' + escHtml(obj.title) + '">' + escHtml(obj.title) + '</span><div class="rv-okr-bar-wrap"><div class="rv-okr-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div><span class="rv-okr-count">' + obj.done + '/' + obj.total + '</span></div>';
+      }).join('') + '</div>'
+    : '') +
     // 习惯打卡明细
     (stats.habitsDetail && stats.habitsDetail.length > 0 ?
       '<div class="rv-habit-detail"><div class="rv-habit-detail-title">🔥 习惯打卡明细</div>' +
@@ -3608,6 +3629,39 @@ textarea { resize: vertical; min-height: 80px; }
   flex-shrink: 0; min-width: 32px; text-align: right;
 }
 
+/* 复盘 OKR 各目标进度条 */
+.rv-okr-detail {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-top: 4px;
+}
+.rv-okr-detail-title {
+  font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 14px;
+}
+.rv-okr-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 0;
+}
+.rv-okr-row + .rv-okr-row { border-top: 1px solid var(--border); }
+.rv-okr-name {
+  font-size: 13px; color: var(--text); flex-shrink: 0; min-width: 120px; max-width: 200px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rv-okr-bar-wrap {
+  flex: 1; height: 10px; background: var(--border); border-radius: 5px; overflow: hidden;
+}
+.rv-okr-bar-fill {
+  height: 100%; border-radius: 5px;
+  transition: width 0.6s ease;
+  min-width: 0;
+}
+.rv-okr-count {
+  font-size: 13px; font-weight: 600; color: var(--accent);
+  flex-shrink: 0; min-width: 36px; text-align: right;
+}
+
 /* 复盘问题区 */
 .rv-question {
   background: var(--surface);
@@ -3642,6 +3696,8 @@ textarea { resize: vertical; min-height: 80px; }
   .rv-left { position: static; }
   .rv-summary { grid-template-columns: repeat(2, 1fr); }
   .rv-textarea { min-height: 100px; font-size: 13px; }
+  .rv-okr-name { min-width: 80px; max-width: 120px; font-size: 12px; }
+  .rv-okr-count { font-size: 12px; min-width: 28px; }
 }
 
 /* ============================================
