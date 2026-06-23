@@ -328,8 +328,6 @@ async function toggleTodayItem(i, checked) {
   _todayItems[i].done = checked;
   await saveTodayItems();
   renderTodayItems();
-  // 同步到仪表盘
-  loadDashboard();
 }
 
 async function removeTodayItem(i) {
@@ -375,11 +373,24 @@ async function removeMemoItem(i) {
 }
 
 async function saveTodayItems() {
-  if (!sb) return;
+  if (!sb) {
+    console.warn('⚠️ Supabase 未连接，今日事项/备忘录无法保存');
+    return;
+  }
   // 持久保留，用固定 key '_current'
-  const memos = _memoItems.map(function(m) { m.type = 'memo'; return m; });
+  // 注意：不直接修改 _memoItems 原对象，创建副本
+  const memos = _memoItems.map(function(m) { return Object.assign({}, m, { type: 'memo' }); });
   const allItems = _todayItems.concat(memos);
-  await sb.from('daily_items').upsert({ date: '_current', items: allItems }, { onConflict: 'date' });
+  try {
+    const { error } = await sb.from('daily_items').upsert({ date: '_current', items: allItems }, { onConflict: 'date' });
+    if (error) {
+      console.error('保存今日事项失败：', error.message);
+      _showToast('⚠️ 保存失败，请检查网络后刷新重试');
+    }
+  } catch (e) {
+    console.error('保存今日事项异常：', e.message || e);
+    _showToast('⚠️ 网络异常，数据可能未保存。请检查网络后刷新重试');
+  }
 }
 
 async function saveMemoItems() {
@@ -490,7 +501,6 @@ async function confirmPickToday() {
   await saveTodayItems();
   closeOKRModal();
   renderTodayItems();
-  loadDashboard();
 }
 
 // ===== 习惯 =====
@@ -667,7 +677,6 @@ async function toggleHabitCheck(id) {
   renderHabitList();
   renderHabitCalendar();
   renderHabitHeatmap();
-  loadDashboard();
   // 同步到日记
   if (h.checkins[today]) await syncHabitToDiary(h.title);
 }
@@ -850,8 +859,13 @@ async function loadInspData() {
   const { data, error } = await sb.from('inspirations').select('*').order('created_at', { ascending: false });
   if (error) { console.error('加载灵感失败:', error); return; }
   _inspList = data || [];
-  // 重置筛选状态
-  _inspFilter = { status: 'all', tag: null, search: '' };
+  // 如果有待跳转的标签筛选，保留它；否则重置
+  if (window._tgPendingTag) {
+    _inspFilter = { status: 'all', tag: window._tgPendingTag, search: '' };
+    window._tgPendingTag = null;
+  } else {
+    _inspFilter = { status: 'all', tag: null, search: '' };
+  }
   document.getElementById('insp-search').value = '';
   document.querySelectorAll('.insp-status-tab').forEach(t => t.classList.toggle('active', t.dataset.status === 'all'));
   renderInspGrid();
@@ -2333,6 +2347,8 @@ function revisitCard(index) {
 
 // ===== 标签管理 =====
 let _tgCounts = {};
+let _tgStatusCounts = {};   // { tag: { practiced, noted, collected, archived } }
+let _tgCoOccur = {};        // { tag: { otherTag: count } }
 let _tgAllTags = [];
 let _tgExpanded = null;
 let _tgInspirations = [];
@@ -2345,17 +2361,39 @@ async function loadTagsPage() {
 }
 
 async function buildTagCounts() {
-  var { data } = await sb.from('inspirations').select('id,title,content,status,tags').order('created_at', { ascending: false });
+  var { data } = await sb.from('inspirations').select('id,title,content,status,tags,created_at').order('created_at', { ascending: false });
   _tgInspirations = data || [];
   _tgCounts = {};
+  _tgStatusCounts = {};
+  _tgCoOccur = {};
   _tgInspirations.forEach(function(item) {
-    (item.tags || []).forEach(function(tag) {
-      var t = tag.trim();
-      if (!t) return;
-      _tgCounts[t] = (_tgCounts[t] || 0) + 1;
+    var tags = (item.tags || []).map(function(t) { return t.trim(); }).filter(Boolean);
+    var status = item.status || 'collected';
+    tags.forEach(function(tag) {
+      // 总数
+      _tgCounts[tag] = (_tgCounts[tag] || 0) + 1;
+      // 按状态统计
+      if (!_tgStatusCounts[tag]) _tgStatusCounts[tag] = { practiced: 0, noted: 0, collected: 0, archived: 0 };
+      _tgStatusCounts[tag][status] = (_tgStatusCounts[tag][status] || 0) + 1;
     });
+    // 标签共现：每对标签记一次
+    for (var i = 0; i < tags.length; i++) {
+      for (var j = i + 1; j < tags.length; j++) {
+        var a = tags[i], b = tags[j];
+        if (!_tgCoOccur[a]) _tgCoOccur[a] = {};
+        if (!_tgCoOccur[b]) _tgCoOccur[b] = {};
+        _tgCoOccur[a][b] = (_tgCoOccur[a][b] || 0) + 1;
+        _tgCoOccur[b][a] = (_tgCoOccur[b][a] || 0) + 1;
+      }
+    }
   });
-  _tgAllTags = Object.keys(_tgCounts).sort(function(a, b) { return _tgCounts[b] - _tgCounts[a]; });
+  // 排序：优先按"已实践"数量，再按总数
+  _tgAllTags = Object.keys(_tgCounts).sort(function(a, b) {
+    var aPracticed = (_tgStatusCounts[a] && _tgStatusCounts[a].practiced) || 0;
+    var bPracticed = (_tgStatusCounts[b] && _tgStatusCounts[b].practiced) || 0;
+    if (bPracticed !== aPracticed) return bPracticed - aPracticed;
+    return _tgCounts[b] - _tgCounts[a];
+  });
 }
 
 function tagFontSize(count) {
@@ -2389,11 +2427,19 @@ function renderTagList() {
   el.innerHTML = _tgAllTags.map(function(tag) {
     var isExpanded = _tgExpanded === tag;
     var count = _tgCounts[tag];
+    var st = _tgStatusCounts[tag] || { practiced: 0, noted: 0, collected: 0, archived: 0 };
     var rowClass = isExpanded ? ' tg-row expanded' : '';
+    // 状态统计小标签
+    var statusBadges = '';
+    if (st.practiced > 0) statusBadges += '<span class="tg-st-badge practiced">✅' + st.practiced + '</span>';
+    if (st.noted > 0) statusBadges += '<span class="tg-st-badge noted">📝' + st.noted + '</span>';
+    if (st.collected > 0) statusBadges += '<span class="tg-st-badge collected">📥' + st.collected + '</span>';
     return '<div class="tg-row' + rowClass + '" id="tg-row-' + escAttr(tag) + '">' +
       '<div class="tg-row-tag" onclick="toggleTagExpand(\'' + escAttr(tag) + '\')">📌 <span id="tg-name-' + escAttr(tag) + '">' + escHtml(tag) + '</span></div>' +
+      '<span class="tg-st-badges">' + statusBadges + '</span>' +
       '<span class="tg-row-count">' + count + ' 条</span>' +
       '<div class="tg-row-acts">' +
+        '<button class="tg-act-btn" title="在灵感库筛选" onclick="event.stopPropagation();jumpToInspTag(\'' + escAttr(tag) + '\')">🔍</button>' +
         '<button class="tg-act-btn" title="改名" onclick="event.stopPropagation();startRenameTag(\'' + escAttr(tag) + '\')">✏️</button>' +
         '<button class="tg-act-btn" title="合并到其他标签" onclick="event.stopPropagation();startMergeTag(\'' + escAttr(tag) + '\')">🔄</button>' +
         '<button class="tg-act-btn danger" title="删除" onclick="event.stopPropagation();confirmDeleteTag(\'' + escAttr(tag) + '\')">🗑️</button>' +
@@ -2411,12 +2457,47 @@ function renderTagExpand(tag) {
   if (items.length === 0) return '<div class="tg-expand"><span style="font-size:12px;color:var(--text-muted)">没有找到相关灵感</span></div>';
 
   var statusLabel = { collected: '刚收集', noted: '已笔记', practiced: '已实践', archived: '已废弃' };
-  return '<div class="tg-expand">' + items.map(function(item) {
+  var st = _tgStatusCounts[tag] || {};
+
+  // 关联标签（按共现次数排，取前 5）
+  var coOccur = _tgCoOccur[tag] || {};
+  var relatedTags = Object.keys(coOccur).sort(function(a, b) { return coOccur[b] - coOccur[a]; }).slice(0, 5);
+
+  var html = '<div class="tg-expand">';
+  // 状态分布条
+  var total = items.length;
+  if (total > 0) {
+    var pctP = Math.round((st.practiced || 0) / total * 100);
+    var pctN = Math.round((st.noted || 0) / total * 100);
+    var pctC = Math.round((st.collected || 0) / total * 100);
+    html += '<div class="tg-expand-bar-wrap"><div class="tg-expand-stats"><span>✅ 已实践 ' + (st.practiced || 0) + '</span><span>📝 已笔记 ' + (st.noted || 0) + '</span><span>📥 刚收集 ' + (st.collected || 0) + '</span></div>' +
+      '<div class="tg-expand-bar"><div class="tg-expand-bar-p" style="width:' + pctP + '%"></div><div class="tg-expand-bar-n" style="width:' + pctN + '%"></div><div class="tg-expand-bar-c" style="width:' + pctC + '%"></div></div></div>';
+  }
+  // 关联标签
+  if (relatedTags.length > 0) {
+    html += '<div class="tg-expand-related"><span class="tg-expand-related-label">🔗 常一起出现：</span>' +
+      relatedTags.map(function(rt) {
+        return '<span class="tg-related-tag" onclick="event.stopPropagation();toggleTagExpand(\'' + escAttr(rt) + '\')">' + escHtml(rt) + ' (' + coOccur[rt] + ')</span>';
+      }).join('') + '</div>';
+  }
+  // 去灵感库按钮
+  html += '<div class="tg-expand-actions"><button class="btn sm" onclick="event.stopPropagation();jumpToInspTag(\'' + escAttr(tag) + '\')">🔍 在灵感库查看全部 →</button></div>';
+  // 灵感列表（前 10 条）
+  html += '<div class="tg-expand-items">' + items.slice(0, 10).map(function(item) {
     var title = item.title || '无标题';
-    var snippet = (item.content || '').slice(0, 60);
-    if (item.content && item.content.length > 60) snippet += '...';
-    return '<div class="tg-expand-item" onclick="switchPage(\'inspiration\')" title="去灵感库查看"><span class="status-dot ' + (item.status || 'collected') + '"></span><span>' + escHtml(title) + '</span><span style="color:var(--text-muted);font-size:11px;margin-left:auto">' + (statusLabel[item.status] || '') + '</span></div>';
+    return '<div class="tg-expand-item" onclick="event.stopPropagation();jumpToInspTag(\'' + escAttr(tag) + '\')" title="去灵感库筛选 ' + escHtml(tag) + '"><span class="status-dot ' + (item.status || 'collected') + '"></span><span>' + escHtml(title) + '</span><span style="color:var(--text-muted);font-size:11px;margin-left:auto">' + (statusLabel[item.status] || '') + '</span></div>';
   }).join('') + '</div>';
+  if (items.length > 10) {
+    html += '<div class="tg-expand-more">还有 ' + (items.length - 10) + ' 条灵感...</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// 跳转到灵感库并筛选指定标签
+function jumpToInspTag(tag) {
+  window._tgPendingTag = tag;
+  switchPage('inspiration');
 }
 
 function toggleTagExpand(tag) {
@@ -3634,7 +3715,7 @@ textarea { resize: vertical; min-height: 80px; }
    ============================================ */
 .rv-layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 40fr 60fr;
   gap: 24px;
   align-items: start;
 }
@@ -4193,10 +4274,41 @@ textarea { resize: vertical; min-height: 80px; }
 .tg-expand-item .status-dot.practiced { background: #6aad40; }
 .tg-expand-item .status-dot.archived { background: #d94444; }
 
+/* 状态统计小标签 */
+.tg-st-badges { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+.tg-st-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+.tg-st-badge.practiced { background: rgba(106,173,64,0.15); color: #5a9e30; }
+.tg-st-badge.noted { background: rgba(106,157,200,0.15); color: #5a8eba; }
+.tg-st-badge.collected { background: rgba(154,142,130,0.15); color: #8a7e72; }
+
+/* 展开-状态分布条 */
+.tg-expand-bar-wrap { margin-bottom: 10px; }
+.tg-expand-stats { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.tg-expand-bar { display: flex; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.tg-expand-bar-p { background: #6aad40; }
+.tg-expand-bar-n { background: #6a9dc8; }
+.tg-expand-bar-c { background: #9a8e82; }
+
+/* 展开-关联标签 */
+.tg-expand-related { margin-bottom: 10px; font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.tg-expand-related-label { white-space: nowrap; }
+.tg-related-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); font-size: 11px; cursor: pointer; transition: all 0.12s; }
+.tg-related-tag:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 展开-操作按钮 */
+.tg-expand-actions { margin-bottom: 8px; }
+.tg-expand-actions .btn.sm { padding: 4px 12px; font-size: 12px; }
+
+/* 展开-灵感列表 */
+.tg-expand-items { display: flex; flex-direction: column; gap: 4px; }
+.tg-expand-more { font-size: 11px; color: var(--text-muted); text-align: center; padding: 4px 0; }
+
 @media (max-width: 768px) {
   .tg-cloud { padding: 14px; gap: 6px; }
   .tg-row { flex-wrap: wrap; }
   .tg-row-acts { width: 100%; justify-content: flex-end; }
+  .tg-st-badges { order: -1; width: 100%; }
+  .tg-expand-related { flex-direction: column; align-items: flex-start; }
 }
 
 </style>
@@ -4210,9 +4322,8 @@ textarea { resize: vertical; min-height: 80px; }
 <!-- 侧边栏 -->
 <nav class="sidebar" id="sidebar">
   <div class="sidebar-logo">幕<span>後</span></div>
-  <a data-page="dashboard" class="active" onclick="switchPage('dashboard')"><span class="icon">🏠</span>今日</a>
+  <a data-page="okr" class="active" onclick="switchPage('okr')"><span class="icon">🎯</span>OKR+习惯</a>
   <a data-page="vision" onclick="switchPage('vision')"><span class="icon">🌟</span>愿景版</a>
-  <a data-page="okr" onclick="switchPage('okr')"><span class="icon">🎯</span>OKR+习惯</a>
   <a data-page="inspiration" onclick="switchPage('inspiration')"><span class="icon">📥</span>灵感库</a>
   <a data-page="diary" onclick="switchPage('diary')"><span class="icon">📔</span>日记</a>
   <a data-page="review" onclick="switchPage('review')"><span class="icon">📋</span>复盘</a>
@@ -4226,30 +4337,6 @@ textarea { resize: vertical; min-height: 80px; }
 
 <!-- 主内容 -->
 <div class="main" id="main">
-
-  <!-- ========== 🏠 今日 ========== -->
-  <div class="page active" id="page-dashboard">
-    <div class="page-title">🏠 今日概览</div>
-    <div class="motto-banner" id="motto-dash" onclick="startEditMotto()"></div>
-    <div class="dashboard-grid">
-      <div class="dash-card">
-        <h3>📌 今日 3 件事</h3>
-        <div class="card-empty" id="dash-today">还没有设定今日事项<br>去「🎯 OKR」页面选择</div>
-      </div>
-      <div class="dash-card">
-        <h3>🔄 今日习惯</h3>
-        <div class="card-empty" id="dash-habits">还没有习惯<br>去「🎯 OKR+习惯」页面创建</div>
-      </div>
-      <div class="dash-card">
-        <h3>📔 今日日记</h3>
-        <div class="card-empty" id="dash-diary">今天还没有写日记<br><a href="#" onclick="switchPage('diary')" style="color:var(--accent)">去写日记 →</a></div>
-      </div>
-      <div class="dash-card">
-        <h3>🌟 愿景摘要</h3>
-        <div class="card-empty" id="dash-vision">还没有设定愿景<br><a href="#" onclick="switchPage('vision')" style="color:var(--accent)">去设定 →</a></div>
-      </div>
-    </div>
-  </div>
 
   <!-- ========== 🌟 愿景版 ========== -->
   <div class="page" id="page-vision">
@@ -4268,9 +4355,9 @@ textarea { resize: vertical; min-height: 80px; }
     </div>
   </div>
 
-  
+
   <!-- ========== 🎯 OKR ========== -->
-  <div class="page" id="page-okr">
+  <div class="page active" id="page-okr">
     <div class="page-title">🎯 OKR + 习惯</div>
     <div class="motto-banner" id="motto-okr" onclick="startEditMotto()"></div>
     <div class="okr-layout">
@@ -4539,19 +4626,15 @@ function getMotto() {
 function renderMotto() {
   var motto = getMotto();
   var html = '<div class="motto-text">💬 ' + escHtml(motto) + '</div><div class="motto-edit-hint">点击编辑 ✏️</div>';
-  ['motto-dash', 'motto-okr'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) { el.innerHTML = html; el.className = 'motto-banner'; el.onclick = function() { startEditMotto(); }; }
-  });
+  var el = document.getElementById('motto-okr');
+  if (el) { el.innerHTML = html; el.className = 'motto-banner'; el.onclick = function() { startEditMotto(); }; }
 }
 
 function startEditMotto() {
   var current = getMotto();
   var editHTML = '<textarea class="motto-textarea" id="motto-textarea">' + escHtml(current) + '</textarea><div class="motto-actions"><button class="motto-btn-save" onclick="event.stopPropagation();saveMotto()">保存</button><button class="motto-btn-cancel" onclick="event.stopPropagation();cancelEditMotto()">取消</button></div>';
-  ['motto-dash', 'motto-okr'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) { el.innerHTML = editHTML; el.className = 'motto-banner editing'; el.onclick = null; }
-  });
+  var el = document.getElementById('motto-okr');
+  if (el) { el.innerHTML = editHTML; el.className = 'motto-banner editing'; el.onclick = null; }
   setTimeout(function() {
     var ta = document.getElementById('motto-textarea');
     if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
@@ -4587,7 +4670,7 @@ function switchPage(name) {
   toggleSidebar(false);
 
   // 加载对应页面数据
-  if (name === 'dashboard') loadDashboard();
+  if (name === 'dashboard') { switchPage('okr'); return; }
   if (name === 'vision') loadVision();
   if (name === 'okr') loadOKRPage();
   if (name === 'inspiration') loadInspData();
@@ -5141,6 +5224,21 @@ function saveSettings() {
   }
 }
 
+// ---------- 提示消息 ----------
+function _showToast(msg) {
+  var el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text, #1a1a1a);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;transition:all 0.3s ease;opacity:0;pointer-events:none;white-space:nowrap;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._tid);
+  el._tid = setTimeout(function() { el.style.opacity = '0'; }, 3000);
+}
+
 // ---------- 辅助函数 ----------
 function escHtml(str) {
   if (!str) return '';
@@ -5166,8 +5264,8 @@ function calcStreak(checkins) {
   // 恢复 DeepSeek key
   const savedKey = localStorage.getItem('muhou_deepseek_key');
   if (savedKey) document.getElementById('deepseek-key').value = savedKey;
-  // 加载仪表盘
-  loadDashboard();
+  // 默认打开 OKR+习惯 页面
+  switchPage('okr');
 })();
 </script>
 
