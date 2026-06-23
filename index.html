@@ -1557,6 +1557,7 @@ async function selectReviewPeriod(period) {
   const { data } = await sb.from('reviews').select('*').eq('period', period).single();
   _reviewData = data || null;
   renderReviewForm();
+  renderFinanceSection();
 
   // 加载历史列表
   renderReviewHistory();
@@ -1745,6 +1746,46 @@ function renderReviewDetails(stats) {
   el.innerHTML = html;
 }
 
+function calcBalance() {
+  var income = parseFloat(document.getElementById('rv-income')?.value) || 0;
+  var expense = parseFloat(document.getElementById('rv-expense')?.value) || 0;
+  var balanceEl = document.getElementById('rv-balance');
+  if (balanceEl) {
+    balanceEl.value = (income || expense) ? (income - expense) : '';
+  }
+}
+
+function renderFinanceSection() {
+  var el = document.getElementById('review-finance');
+  if (!el) return;
+  var data = _reviewData || {};
+
+  var income = data.income || '';
+  var expense = data.expense || '';
+  var balance = (income !== '' && expense !== '') ? (income - expense) : '';
+
+  var html = '<div class="rv-finance">';
+  html += '<div class="rv-finance-title">💰 财务回顾</div>';
+  html += '<div class="rv-finance-layout">';
+
+  // 左：数字
+  html += '<div class="rv-finance-left">';
+  html += '<div class="rv-finance-field"><label class="rv-finance-label">月收入</label><input type="number" id="rv-income" class="rv-finance-input" value="' + income + '" placeholder="0" oninput="calcBalance()"><span class="rv-finance-unit">元</span></div>';
+  html += '<div class="rv-finance-field"><label class="rv-finance-label">月支出</label><input type="number" id="rv-expense" class="rv-finance-input" value="' + expense + '" placeholder="0" oninput="calcBalance()"><span class="rv-finance-unit">元</span></div>';
+  html += '<div class="rv-finance-field"><label class="rv-finance-label">结余</label><input type="text" id="rv-balance" class="rv-finance-input rv-finance-balance" value="' + balance + '" readonly placeholder="自动计算"><span class="rv-finance-unit">元</span></div>';
+  html += '<div class="rv-finance-field"><label class="rv-finance-label">本月存了</label><input type="number" id="rv-saved-month" class="rv-finance-input" value="' + (data.saved_this_month || '') + '" placeholder="0"><span class="rv-finance-unit">元</span></div>';
+  html += '<div class="rv-finance-field"><label class="rv-finance-label">累计存款</label><input type="number" id="rv-saved-total" class="rv-finance-input" value="' + (data.saved_total || '') + '" placeholder="0"><span class="rv-finance-unit">元</span></div>';
+  html += '</div>';
+
+  // 右：文字
+  html += '<div class="rv-finance-right">';
+  html += '<textarea id="rv-finance-note" class="rv-finance-textarea" placeholder="这个月财务状况怎么样？钱花在刀刃上了吗？下个月有什么财务打算？">' + (data.finance_note || '') + '</textarea>';
+  html += '</div>';
+
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
 function renderReviewForm() {
   const el = document.getElementById('review-form');
   if (!el) return;
@@ -1783,6 +1824,11 @@ async function saveReview() {
     low_points: document.getElementById('rv-lowpoints')?.value || '',
     learnings: document.getElementById('rv-learnings')?.value || '',
     next_focus: document.getElementById('rv-nextfocus')?.value || '',
+    income: parseFloat(document.getElementById('rv-income')?.value) || 0,
+    expense: parseFloat(document.getElementById('rv-expense')?.value) || 0,
+    saved_this_month: parseFloat(document.getElementById('rv-saved-month')?.value) || 0,
+    saved_total: parseFloat(document.getElementById('rv-saved-total')?.value) || 0,
+    finance_note: document.getElementById('rv-finance-note')?.value || '',
     updated_at: new Date().toISOString()
   };
 
@@ -1790,7 +1836,7 @@ async function saveReview() {
   if (result.error) {
     // 表可能还不存在
     if (result.error.message && result.error.message.indexOf('reviews') !== -1) {
-      alert('❌ 复盘表还不存在。请在 Supabase 后台执行：\n\nCREATE TABLE IF NOT EXISTS reviews (\n  id BIGSERIAL PRIMARY KEY,\n  period TEXT NOT NULL UNIQUE,\n  highlights TEXT DEFAULT \'\',\n  low_points TEXT DEFAULT \'\',\n  learnings TEXT DEFAULT \'\',\n  next_focus TEXT DEFAULT \'\',\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);');
+      alert('❌ 复盘表还不存在。请在 Supabase 后台执行：\n\nCREATE TABLE IF NOT EXISTS reviews (\n  id BIGSERIAL PRIMARY KEY,\n  period TEXT NOT NULL UNIQUE,\n  highlights TEXT DEFAULT \'\',\n  low_points TEXT DEFAULT \'\',\n  learnings TEXT DEFAULT \'\',\n  next_focus TEXT DEFAULT \'\',\n  income NUMERIC DEFAULT 0,\n  expense NUMERIC DEFAULT 0,\n  saved_this_month NUMERIC DEFAULT 0,\n  saved_total NUMERIC DEFAULT 0,\n  finance_note TEXT DEFAULT \'\',\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);');
       return;
     }
     alert('保存失败: ' + result.error.message);
@@ -1799,6 +1845,7 @@ async function saveReview() {
 
   _reviewData = payload;
   renderReviewForm();
+  renderFinanceSection();
   renderReviewHistory();
 
   var btn = document.querySelector('.rv-actions .btn.accent');
@@ -3702,6 +3749,50 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .rv-saved-info { font-size: 12px; color: var(--text-muted); }
 
+/* 财务复盘 */
+.rv-finance {
+  background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border);
+  padding: 20px; margin-bottom: 20px;
+}
+.rv-finance-title {
+  font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 16px;
+}
+.rv-finance-layout {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+}
+.rv-finance-left {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.rv-finance-field {
+  display: flex; align-items: center; gap: 8px;
+}
+.rv-finance-label {
+  font-size: 13px; color: var(--text-muted); min-width: 70px; flex-shrink: 0;
+}
+.rv-finance-input {
+  width: 140px; padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-size: 14px; font-family: var(--font);
+}
+.rv-finance-input:focus { border-color: var(--accent); outline: none; }
+.rv-finance-input::placeholder { color: var(--text-muted); opacity: 0.5; }
+.rv-finance-balance {
+  background: var(--bg); color: var(--accent); font-weight: 700;
+}
+.rv-finance-unit {
+  font-size: 12px; color: var(--text-muted); flex-shrink: 0;
+}
+.rv-finance-right {
+  display: flex; flex-direction: column;
+}
+.rv-finance-textarea {
+  width: 100%; flex: 1; min-height: 180px; padding: 12px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-size: 13px; font-family: var(--font); resize: vertical; line-height: 1.7;
+}
+.rv-finance-textarea:focus { border-color: var(--accent); outline: none; }
+.rv-finance-textarea::placeholder { color: var(--text-muted); opacity: 0.6; }
+
 @media (max-width: 768px) {
   .rv-layout { grid-template-columns: 1fr; }
   .rv-summary { grid-template-columns: repeat(2, 1fr); }
@@ -3711,6 +3802,8 @@ textarea { resize: vertical; min-height: 80px; }
   .rv-done-date { min-width: 56px; font-size: 10px; }
   .rv-done-obj { font-size: 10px; }
   .rv-questions-grid { grid-template-columns: 1fr; }
+  .rv-finance-layout { grid-template-columns: 1fr; }
+  .rv-finance-textarea { min-height: 120px; }
 }
 
 /* ============================================
@@ -4155,6 +4248,7 @@ textarea { resize: vertical; min-height: 80px; }
       </div>
       <div class="rv-right">
         <div class="rv-summary" id="review-summary"></div>
+        <div id="review-finance"></div>
         <div id="review-form"></div>
       </div>
     </div>
