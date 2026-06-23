@@ -1542,10 +1542,9 @@ async function loadReviewDataSummary() {
         });
       });
     });
-    if (objAllTotal > 0) {
-      okrTotal += objAllTotal;
-      okrDetail.push({ title: o.title, done: objAllDone, total: objAllTotal });
-    }
+    // 即使没有任务也显示目标（0/0），确保所有目标都出现在进度条中
+    okrTotal += objAllTotal;
+    okrDetail.push({ title: o.title, done: objAllDone, total: objAllTotal });
   });
 
   // 2. 习惯打卡天数 + 每项明细
@@ -1575,13 +1574,24 @@ async function loadReviewDataSummary() {
   const { data: diaries } = await sb.from('diaries').select('date,content').gte('date', startDate).lte('date', endDate);
   (diaries || []).forEach(d => { if (d.content) diaryCount++; });
 
-  // 4. 灵感统计
+  // 4. 灵感统计 + 明细（按状态分组）
   let inspCollected = 0, inspPracticed = 0;
-  const { data: inspList } = await sb.from('inspirations').select('status,created_at');
+  let inspDetail = { practiced: [], noted: [], collected: [] }; // 按状态分组
+  const { data: inspList } = await sb.from('inspirations').select('title,status,created_at');
   (inspList || []).forEach(i => {
     if (i.created_at && i.created_at.slice(0, 7) === _reviewPeriod) {
-      if (i.status === 'collected' || i.status === 'noted') inspCollected++;
-      if (i.status === 'practiced') inspPracticed++;
+      if (i.status === 'collected') {
+        inspCollected++;
+        inspDetail.collected.push({ title: i.title, date: i.created_at });
+      }
+      if (i.status === 'noted') {
+        inspCollected++;
+        inspDetail.noted.push({ title: i.title, date: i.created_at });
+      }
+      if (i.status === 'practiced') {
+        inspPracticed++;
+        inspDetail.practiced.push({ title: i.title, date: i.created_at });
+      }
     }
   });
 
@@ -1595,7 +1605,9 @@ async function loadReviewDataSummary() {
     }
   });
 
-  renderReviewDataSummary({ okrMonthDone: okrMonthDone, okrTotal, okrDetail: okrDetail, monthDoneTasks: monthDoneTasks, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
+  var stats = { okrMonthDone: okrMonthDone, okrTotal, okrDetail: okrDetail, monthDoneTasks: monthDoneTasks, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, inspDetail: inspDetail, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone };
+  renderReviewDataSummary(stats);
+  renderReviewDetails(stats);
 }
 
 function renderReviewDataSummary(stats) {
@@ -1610,33 +1622,75 @@ function renderReviewDataSummary(stats) {
     '<div class="rv-summary-card"><div class="rv-summary-icon">🔥</div><div class="rv-summary-num">' + stats.habitDays + '</div><div class="rv-summary-label">习惯打卡天数</div><div class="rv-summary-sub">本月共 ' + daysInMonth + ' 天</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">📔</div><div class="rv-summary-num">' + stats.diaryCount + '</div><div class="rv-summary-label">日记篇数</div><div class="rv-summary-sub">本月写了 ' + stats.diaryCount + ' 篇</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">💡</div><div class="rv-summary-num">' + stats.inspPracticed + '</div><div class="rv-summary-label">灵感实践</div><div class="rv-summary-sub">收集 ' + stats.inspCollected + ' · 实践 ' + stats.inspPracticed + '</div></div>' +
-    '<div class="rv-summary-card"><div class="rv-summary-icon">📝</div><div class="rv-summary-num">' + stats.memoDone + '</div><div class="rv-summary-label">备忘完成</div><div class="rv-summary-sub">共 ' + stats.memoTotal + ' 条 · 完成 ' + stats.memoDone + '</div></div>' +
-    // 🎯 各 OKR 目标进度条
-    (stats.okrDetail && stats.okrDetail.length > 0 ?
-      '<div class="rv-okr-detail"><div class="rv-okr-detail-title">🎯 各目标进度</div>' +
-      stats.okrDetail.map(function(obj) {
-        var pct = Math.round(obj.done / obj.total * 100);
-        var barColor = pct >= 70 ? 'var(--accent)' : pct >= 30 ? '#f59e0b' : '#e0e0e0';
-        return '<div class="rv-okr-row"><span class="rv-okr-name" title="' + escHtml(obj.title) + '">' + escHtml(obj.title) + '</span><div class="rv-okr-bar-wrap"><div class="rv-okr-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div><span class="rv-okr-count">' + obj.done + '/' + obj.total + '</span></div>';
-      }).join('') + '</div>'
-    : '') +
-    // 📋 本月完成明细
-    (stats.monthDoneTasks && stats.monthDoneTasks.length > 0 ?
-      '<div class="rv-okr-detail"><div class="rv-okr-detail-title">✅ 本月完成明细</div>' +
-      stats.monthDoneTasks.map(function(t) {
-        var shortDate = t.doneAt ? t.doneAt.slice(0, 10) : '';
-        return '<div class="rv-done-row"><span class="rv-done-date">' + shortDate + '</span><span class="rv-done-task">' + escHtml(t.taskTitle) + '</span><span class="rv-done-obj">← ' + escHtml(t.objTitle) + '</span></div>';
-      }).join('') + '</div>'
-    : '') +
-    // 习惯打卡明细
-    (stats.habitsDetail && stats.habitsDetail.length > 0 ?
-      '<div class="rv-habit-detail"><div class="rv-habit-detail-title">🔥 习惯打卡明细</div>' +
-      stats.habitsDetail.sort(function(a, b) { return b.count - a.count; }).map(function(h) {
-        var pct = Math.min(Math.round(h.count / daysInMonth * 100), 100);
-        var rhythmLabel = h.rhythm === 'weekly' ? ' (周)' : '';
-        return '<div class="rv-habit-row"><span class="rv-habit-emoji">' + escHtml(h.emoji) + '</span><span class="rv-habit-name">' + escHtml(h.title) + rhythmLabel + '</span><div class="rv-habit-bar-wrap"><div class="rv-habit-bar-fill" style="width:' + pct + '%"></div></div><span class="rv-habit-count">' + h.count + '天</span></div>';
-      }).join('') + '</div>'
-    : '');
+    '<div class="rv-summary-card"><div class="rv-summary-icon">📝</div><div class="rv-summary-num">' + stats.memoDone + '</div><div class="rv-summary-label">备忘完成</div><div class="rv-summary-sub">共 ' + stats.memoTotal + ' 条 · 完成 ' + stats.memoDone + '</div></div>';
+}
+
+// 渲染复盘详情区（各目标进度、本月完成明细、习惯打卡明细、灵感实践明细）
+function renderReviewDetails(stats) {
+  const el = document.getElementById('review-details');
+  if (!el) return;
+  const daysInMonth = new Date(parseInt(_reviewPeriod.split('-')[0]), parseInt(_reviewPeriod.split('-')[1]), 0).getDate();
+  var html = '';
+
+  // 🎯 各 OKR 目标进度条
+  if (stats.okrDetail && stats.okrDetail.length > 0) {
+    html += '<div class="rv-detail-block"><div class="rv-detail-title">🎯 各目标进度</div>';
+    stats.okrDetail.forEach(function(obj) {
+      var pct = obj.total > 0 ? Math.round(obj.done / obj.total * 100) : 0;
+      var barColor = pct >= 70 ? 'var(--accent)' : pct >= 30 ? '#f59e0b' : '#e0e0e0';
+      var emptyHint = obj.total === 0 ? ' <span style="font-size:11px;color:var(--text-muted)">（暂无任务）</span>' : '';
+      html += '<div class="rv-okr-row"><span class="rv-okr-name" title="' + escHtml(obj.title) + '">' + escHtml(obj.title) + emptyHint + '</span><div class="rv-okr-bar-wrap"><div class="rv-okr-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div><span class="rv-okr-count">' + obj.done + '/' + obj.total + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  // 📋 本月完成明细
+  if (stats.monthDoneTasks && stats.monthDoneTasks.length > 0) {
+    html += '<div class="rv-detail-block"><div class="rv-detail-title">✅ 本月完成任务</div>';
+    stats.monthDoneTasks.forEach(function(t) {
+      var shortDate = t.doneAt ? t.doneAt.slice(0, 10) : '';
+      html += '<div class="rv-done-row"><span class="rv-done-date">' + shortDate + '</span><span class="rv-done-task">' + escHtml(t.taskTitle) + '</span><span class="rv-done-obj">← ' + escHtml(t.objTitle) + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  // 🔥 习惯打卡明细
+  if (stats.habitsDetail && stats.habitsDetail.length > 0) {
+    html += '<div class="rv-detail-block"><div class="rv-detail-title">🔥 习惯打卡明细</div>';
+    stats.habitsDetail.sort(function(a, b) { return b.count - a.count; }).forEach(function(h) {
+      var pct = Math.min(Math.round(h.count / daysInMonth * 100), 100);
+      var rhythmLabel = h.rhythm === 'weekly' ? ' (周)' : '';
+      html += '<div class="rv-habit-row"><span class="rv-habit-emoji">' + escHtml(h.emoji) + '</span><span class="rv-habit-name">' + escHtml(h.title) + rhythmLabel + '</span><div class="rv-habit-bar-wrap"><div class="rv-habit-bar-fill" style="width:' + pct + '%"></div></div><span class="rv-habit-count">' + h.count + '天</span></div>';
+    });
+    html += '</div>';
+  }
+
+  // 💡 灵感实践明细（按状态分组）
+  var inspSections = [
+    { key: 'practiced', icon: '✅', label: '已实践', items: stats.inspDetail ? stats.inspDetail.practiced : [] },
+    { key: 'noted', icon: '📝', label: '已做笔记', items: stats.inspDetail ? stats.inspDetail.noted : [] },
+    { key: 'collected', icon: '📥', label: '刚收集', items: stats.inspDetail ? stats.inspDetail.collected : [] }
+  ];
+  var hasInsp = inspSections.some(function(s) { return s.items && s.items.length > 0; });
+  if (hasInsp) {
+    html += '<div class="rv-detail-block"><div class="rv-detail-title">💡 灵感动态</div>';
+    inspSections.forEach(function(section) {
+      if (section.items && section.items.length > 0) {
+        html += '<div class="rv-insp-group-title">' + section.icon + ' ' + section.label + ' · ' + section.items.length + '条</div>';
+        section.items.forEach(function(item) {
+          var shortDate = item.date ? item.date.slice(0, 10) : '';
+          html += '<div class="rv-done-row"><span class="rv-done-date">' + shortDate + '</span><span class="rv-done-task">' + escHtml(item.title) + '</span></div>';
+        });
+      }
+    });
+    html += '</div>';
+  }
+
+  if (!html) {
+    html = '<div class="card-empty" style="padding:24px 0;text-align:center;color:var(--text-muted)">本月暂无明细数据</div>';
+  }
+
+  el.innerHTML = html;
 }
 
 function renderReviewForm() {
@@ -1655,10 +1709,11 @@ function renderReviewForm() {
     { id: 'rv-nextfocus', label: '🎯 下个月想重点推进什么？', hint: '比如：下个月最想完成的一件事是什么？想尝试什么新方向？\n想改掉什么习惯？需要什么资源或支持？', value: nextFocus }
   ];
 
-  let html = '';
+  let html = '<div class="rv-questions-grid">';
   questions.forEach(function(q) {
     html += '<div class="rv-question"><div class="rv-q-label">' + q.label + '</div><textarea id="' + q.id + '" class="rv-textarea" placeholder="' + escHtml(q.hint) + '">' + escHtml(q.value) + '</textarea></div>';
   });
+  html += '</div>';
 
   const savedAt = _reviewData ? (_reviewData.updated_at ? new Date(_reviewData.updated_at).toLocaleString('zh-CN') : '') : '';
   const savedInfo = savedAt ? '<span class="rv-saved-info">上次保存：' + savedAt + '</span>' : '';
@@ -3691,6 +3746,31 @@ textarea { resize: vertical; min-height: 80px; }
   color: var(--text-muted); font-size: 11px; flex-shrink: 0; font-style: italic;
 }
 
+/* 复盘详情区块（各目标进度、习惯打卡、灵感动态） */
+.rv-detail-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.rv-detail-title {
+  font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 14px;
+}
+.rv-insp-group-title {
+  font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 12px 0 6px;
+  padding-top: 8px; border-top: 1px dashed var(--border);
+}
+.rv-insp-group-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+/* 复盘问题区 2列网格 */
+.rv-questions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.rv-questions-grid .rv-question { margin-bottom: 0; }
+
 /* 复盘问题区 */
 .rv-question {
   background: var(--surface);
@@ -3729,6 +3809,7 @@ textarea { resize: vertical; min-height: 80px; }
   .rv-okr-count { font-size: 12px; min-width: 28px; }
   .rv-done-date { min-width: 56px; font-size: 10px; }
   .rv-done-obj { font-size: 10px; }
+  .rv-questions-grid { grid-template-columns: 1fr; }
 }
 
 /* ============================================
@@ -4254,6 +4335,7 @@ textarea { resize: vertical; min-height: 80px; }
       </div>
       <div class="rv-right">
         <div class="rv-summary" id="review-summary"></div>
+        <div id="review-details"></div>
         <div id="review-form"></div>
       </div>
     </div>
