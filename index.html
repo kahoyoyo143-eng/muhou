@@ -1515,31 +1515,30 @@ async function loadReviewDataSummary() {
   const startDate = _reviewPeriod + '-01';
   const endDate = y + '-' + m + '-' + String(new Date(parseInt(y), parseInt(m), 0).getDate()).padStart(2, '0');
 
-  // 1. OKR 任务+子任务完成数（当期目标 + 子任务纳入 + 进度条显示总进度）
-  let okrMonthDone = 0;  // 本月完成数（汇总卡用）
+  // 1. OKR 任务+子任务完成数（所有目标都显示，本月完成多少算多少）
+  let okrMonthDone = 0;  // 本月完成数
   let okrTotal = 0;
-  let okrDetail = []; // 每个目标的进度明细（总进度）
-  const [ry, rm] = _reviewPeriod.split('-');
-  const rq = 'Q' + Math.ceil(parseInt(rm) / 3); // 从月份推算季度，如 "06" → "Q2"
+  let okrDetail = []; // 每个目标的进度明细
+  let monthDoneTasks = []; // 本月完成的具体任务明细 [{objTitle, taskTitle, doneAt}]
   const { data: okrs } = await sb.from('okrs').select('*');
   (okrs || []).forEach(o => {
-    // 筛选当期目标：月份匹配 或 季度匹配 或 都没设（兼容旧数据）
-    let inPeriod = !o.period_m || o.period_m === _reviewPeriod;
-    if (!inPeriod && o.period_q) {
-      inPeriod = (o.period_q === ry + '-' + rq); // 如 "2026-Q2"
-    }
-    if (!inPeriod) return;
     let objAllDone = 0, objAllTotal = 0;
     (o.key_results || []).forEach(kr => {
       (kr.tasks || []).forEach(t => {
         objAllTotal++;
         if (t.done) objAllDone++;
-        if (t.done && t.doneAt && t.doneAt.slice(0, 7) === _reviewPeriod) okrMonthDone++;
+        if (t.done && t.doneAt && t.doneAt.slice(0, 7) === _reviewPeriod) {
+          okrMonthDone++;
+          monthDoneTasks.push({ objTitle: o.title, taskTitle: t.title, doneAt: t.doneAt });
+        }
         // 子任务也统计
         (t.subtasks || []).forEach(st => {
           objAllTotal++;
           if (st.done) objAllDone++;
-          if (st.done && st.doneAt && st.doneAt.slice(0, 7) === _reviewPeriod) okrMonthDone++;
+          if (st.done && st.doneAt && st.doneAt.slice(0, 7) === _reviewPeriod) {
+            okrMonthDone++;
+            monthDoneTasks.push({ objTitle: o.title, taskTitle: st.title, doneAt: st.doneAt });
+          }
         });
       });
     });
@@ -1596,7 +1595,7 @@ async function loadReviewDataSummary() {
     }
   });
 
-  renderReviewDataSummary({ okrMonthDone: okrMonthDone, okrTotal, okrDetail: okrDetail, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
+  renderReviewDataSummary({ okrMonthDone: okrMonthDone, okrTotal, okrDetail: okrDetail, monthDoneTasks: monthDoneTasks, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone });
 }
 
 function renderReviewDataSummary(stats) {
@@ -1620,7 +1619,15 @@ function renderReviewDataSummary(stats) {
         var barColor = pct >= 70 ? 'var(--accent)' : pct >= 30 ? '#f59e0b' : '#e0e0e0';
         return '<div class="rv-okr-row"><span class="rv-okr-name" title="' + escHtml(obj.title) + '">' + escHtml(obj.title) + '</span><div class="rv-okr-bar-wrap"><div class="rv-okr-bar-fill" style="width:' + pct + '%;background:' + barColor + '"></div></div><span class="rv-okr-count">' + obj.done + '/' + obj.total + '</span></div>';
       }).join('') + '</div>'
-    : '<div class="rv-okr-detail"><div class="rv-okr-detail-title">🎯 各目标进度</div><div style="font-size:12px;color:var(--text-muted);padding:8px 0">暂无当期 OKR 数据。请确认目标已设置「所属月份」或「所属季度」与当前复盘月份一致。</div></div>') +
+    : '') +
+    // 📋 本月完成明细
+    (stats.monthDoneTasks && stats.monthDoneTasks.length > 0 ?
+      '<div class="rv-okr-detail"><div class="rv-okr-detail-title">✅ 本月完成明细</div>' +
+      stats.monthDoneTasks.map(function(t) {
+        var shortDate = t.doneAt ? t.doneAt.slice(0, 10) : '';
+        return '<div class="rv-done-row"><span class="rv-done-date">' + shortDate + '</span><span class="rv-done-task">' + escHtml(t.taskTitle) + '</span><span class="rv-done-obj">← ' + escHtml(t.objTitle) + '</span></div>';
+      }).join('') + '</div>'
+    : '') +
     // 习惯打卡明细
     (stats.habitsDetail && stats.habitsDetail.length > 0 ?
       '<div class="rv-habit-detail"><div class="rv-habit-detail-title">🔥 习惯打卡明细</div>' +
@@ -3669,6 +3676,21 @@ textarea { resize: vertical; min-height: 80px; }
   flex-shrink: 0; min-width: 36px; text-align: right;
 }
 
+/* 本月完成明细 */
+.rv-done-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px;
+}
+.rv-done-row + .rv-done-row { border-top: 1px solid var(--border); }
+.rv-done-date {
+  color: var(--text-muted); font-size: 11px; flex-shrink: 0; min-width: 72px;
+}
+.rv-done-task {
+  color: var(--text); flex: 1;
+}
+.rv-done-obj {
+  color: var(--text-muted); font-size: 11px; flex-shrink: 0; font-style: italic;
+}
+
 /* 复盘问题区 */
 .rv-question {
   background: var(--surface);
@@ -3705,6 +3727,8 @@ textarea { resize: vertical; min-height: 80px; }
   .rv-textarea { min-height: 100px; font-size: 13px; }
   .rv-okr-name { min-width: 80px; max-width: 120px; font-size: 12px; }
   .rv-okr-count { font-size: 12px; min-width: 28px; }
+  .rv-done-date { min-width: 56px; font-size: 10px; }
+  .rv-done-obj { font-size: 10px; }
 }
 
 /* ============================================
