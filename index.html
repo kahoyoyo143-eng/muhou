@@ -635,23 +635,14 @@ function renderHabitList() {
 
   // 事件委托：活跃习惯
   el.onclick = function(ev) {
-    var dbg = document.getElementById('habit-edit-mode-btn');
-    dbg.textContent = '🐛1';
     const item = ev.target.closest('.habit-item');
-    if (!item) { dbg.textContent = '🐛no-item'; return; }
-    dbg.textContent = '🐛2';
-    const hid = parseInt(item.dataset.hid);
-    if (isNaN(hid)) { dbg.textContent = '🐛bad-hid:' + item.dataset.hid; return; }
-    dbg.textContent = '🐛3';
-    var isCheck = ev.target.closest('.habit-check');
-    var isEdit = ev.target.closest('.habit-edit');
-    var isDel = ev.target.closest('.habit-del');
-    var isArch = ev.target.closest('.habit-archive');
-    dbg.textContent = '🐛4:c=' + !!isCheck + ' e=' + !!isEdit + ' d=' + !!isDel + ' a=' + !!isArch;
-    if (isCheck) toggleHabitCheck(hid);
-    if (isEdit) editHabit(hid);
-    if (isDel) deleteHabit(hid);
-    if (isArch) toggleHabitArchive(hid);
+    if (!item) return;
+    const hid = item.dataset.hid;
+    if (!hid) return;
+    if (ev.target.closest('.habit-check')) toggleHabitCheck(hid);
+    if (ev.target.closest('.habit-edit')) editHabit(hid);
+    if (ev.target.closest('.habit-del')) deleteHabit(hid);
+    if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
   };
 
   // 拖拽排序 — 仅编辑模式下启用拖拽处理器
@@ -713,8 +704,8 @@ function renderHabitList() {
       archEl.onclick = function(ev) {
         const item = ev.target.closest('.habit-item');
         if (!item) return;
-        const hid = parseInt(item.dataset.hid);
-        if (isNaN(hid)) return;
+        const hid = item.dataset.hid;
+        if (!hid) return;
         if (ev.target.closest('.habit-edit')) editHabit(hid);
         if (ev.target.closest('.habit-del')) deleteHabit(hid);
         if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
@@ -820,22 +811,17 @@ function changeHabitMonth(delta) {
 }
 
 async function toggleHabitCheck(id) {
-  var dbg = document.getElementById('habit-edit-mode-btn');
-  if (!sb) { if (dbg) dbg.textContent = '🐛sb=' + (typeof sb) + '/' + String(sb) + ' supabase=' + (typeof supabase) + ' log:' + (window._initLog||'空'); return; }
+  if (!sb) return;
   var h = _habitList.find(x => x.id == id);
-  if (!h) { if (dbg) { var ids = _habitList.map(function(x){return x.id;}).join(','); dbg.textContent = '🐛noH hid='+id+' ids=['+ids+'] len='+_habitList.length; } return; }
+  if (!h) return;
   const today = new Date().toISOString().slice(0, 10);
   if (!h.checkins) h.checkins = {};
   if (h.checkins[today]) {
-    if (dbg) dbg.textContent = '🐛取消打卡';
     delete h.checkins[today];
   } else {
-    if (dbg) dbg.textContent = '🐛设置打卡';
     h.checkins[today] = true;
   }
-  var result = await sb.from('habits').update({ checkins: h.checkins }).eq('id', id);
-  if (result.error) { if (dbg) dbg.textContent = '🐛DB错:' + result.error.message; return; }
-  if (dbg) dbg.textContent = '🐛DB OK';
+  await sb.from('habits').update({ checkins: h.checkins }).eq('id', id);
   renderHabitList();
   renderHabitCalendar();
   renderHabitHeatmap();
@@ -4430,7 +4416,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <button class="btn-sm" id="habit-edit-mode-btn" onclick="toggleHabitEditMode()" style="margin-left:8px;font-size:11px;padding:2px 8px">✋ 排序</button> <span style="color:red;font-size:11px;font-weight:normal">● v8</span></h3>
+          <h3>🔄 今日习惯 <button class="btn-sm" id="habit-edit-mode-btn" onclick="toggleHabitEditMode()" style="margin-left:8px;font-size:11px;padding:2px 8px">✋ 排序</button> <span style="color:red;font-size:11px;font-weight:normal">● v9</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
         </div>
@@ -4610,14 +4596,10 @@ textarea { resize: vertical; min-height: 80px; }
 const SB_URL = 'https://otbzfmfqtfcdlronivdk.supabase.co';
 const SB_KEY = 'sb_publishable_7Ik9TdtWu8fuwR9f50BUdg_UM5lJpHt';
 let sb = null;
-window._initLog = '';
-
 try {
   sb = supabase.createClient(SB_URL, SB_KEY);
-  window._initLog += 'initOK ';
   console.log('✅ Supabase 已连接');
 } catch(e) {
-  window._initLog += 'initFAIL:' + e.message + ' ';
   console.error('❌ Supabase 连接失败:', e);
 }
 
