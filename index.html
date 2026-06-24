@@ -931,10 +931,9 @@ async function deleteHabit(id) {
 
 // ===== 习惯排序 =====
 async function moveHabitUp(id) {
-  alert('▲ 点击了 id=' + id + ' sb=' + !!sb + ' habits=' + _habitList.length);
   if (!sb) return;
   var current = _habitList.find(function(h) { return h.id == id; });
-  if (!current) { alert('找不到习惯 id=' + id); return; }
+  if (!current) return;
   // 只在同组（活跃/归档）内排序
   var group = _habitList.filter(function(h) { return h.archived == current.archived; });
   group.sort(function(a, b) {
@@ -944,7 +943,8 @@ async function moveHabitUp(id) {
     return (a.created_at || '').localeCompare(b.created_at || '');
   });
   var idx = group.findIndex(function(h) { return h.id == id; });
-  if (idx <= 0) return;
+  alert('idx=' + idx + ' groupLen=' + group.length + ' title=' + current.title);
+  if (idx <= 0) { alert('已在最上面，无法上移'); return; }
   // 先归一化：给同组所有项分配连续的 sort_order（0,1,2,3...），避免同值交换无效
   for (var i = 0; i < group.length; i++) {
     group[i].sort_order = i;
@@ -962,6 +962,7 @@ async function moveHabitUp(id) {
   var localB = _habitList.find(function(h) { return h.id == group[idx - 1].id; });
   if (localA) localA.sort_order = current.sort_order;
   if (localB) localB.sort_order = group[idx - 1].sort_order;
+  alert('移动完成: ' + current.title + ' → idx=' + (idx-1) + ' sort_order=' + current.sort_order);
   renderHabitList();
 }
 
@@ -4395,7 +4396,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug2-2</span></h3>
+          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug2-3</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
           <div id="archived-habit-list"></div>
