@@ -608,7 +608,7 @@ function renderHabitList() {
     const checked = h.checkins && h.checkins[today];
     const streak = calcStreak(h.checkins);
     const emojiHtml = h.emoji ? '<span class="habit-emoji">' + h.emoji + '</span>' : '';
-    return '<div class="habit-item" draggable="true" data-hid="' + h.id + '">' + emojiHtml + '<button class="habit-up" title="上移">▲</button><button class="habit-down" title="下移">▼</button><button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-edit" title="编辑">✏️</button><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
+    return '<div class="habit-item" draggable="true" data-hid="' + h.id + '">' + emojiHtml + '<button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-edit" title="编辑">✏️</button><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
   };
 
   // 活跃习惯 → #habit-list
@@ -625,8 +625,6 @@ function renderHabitList() {
     const hid = parseInt(item.dataset.hid);
     if (isNaN(hid)) return;
     if (ev.target.closest('.habit-check')) toggleHabitCheck(hid);
-    if (ev.target.closest('.habit-up')) moveHabitUp(hid);
-    if (ev.target.closest('.habit-down')) moveHabitDown(hid);
     if (ev.target.closest('.habit-edit')) editHabit(hid);
     if (ev.target.closest('.habit-del')) deleteHabit(hid);
     if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
@@ -692,8 +690,6 @@ function renderHabitList() {
       if (item) {
         const hid = parseInt(item.dataset.hid);
         if (isNaN(hid)) return;
-        if (ev.target.closest('.habit-up')) moveHabitUp(hid);
-        if (ev.target.closest('.habit-down')) moveHabitDown(hid);
         if (ev.target.closest('.habit-edit')) editHabit(hid);
         if (ev.target.closest('.habit-del')) deleteHabit(hid);
         if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
@@ -977,77 +973,6 @@ async function deleteHabit(id) {
   renderHabitList();
   renderHabitCalendar();
   renderHabitHeatmap();
-}
-
-// ===== 习惯排序 =====
-async function moveHabitUp(id) {
-  if (!sb) return;
-  if (isNaN(id)) return;
-  // 按当前显示顺序排序
-  _habitList.sort(function(a, b) {
-    var soA = a.sort_order != null ? a.sort_order : 0;
-    var soB = b.sort_order != null ? b.sort_order : 0;
-    if (soA !== soB) return soA - soB;
-    return (a.created_at || '').localeCompare(b.created_at || '');
-  });
-  // 找到当前习惯的位置
-  var idx = -1;
-  for (var i = 0; i < _habitList.length; i++) {
-    if (_habitList[i].id == id) { idx = i; break; }
-  }
-  if (idx <= 0) return;
-  // 只和同组（活跃/归档）的前一个交换
-  var prev = _habitList[idx - 1];
-  if (prev.archived != _habitList[idx].archived) return;
-  // 交换 sort_order
-  var tmp = _habitList[idx].sort_order;
-  _habitList[idx].sort_order = prev.sort_order;
-  prev.sort_order = tmp;
-  // 如果 sort_order 相同或无效，用位置赋值
-  if (_habitList[idx].sort_order == null && prev.sort_order == null || _habitList[idx].sort_order === prev.sort_order) {
-    for (var j = 0; j < _habitList.length; j++) { _habitList[j].sort_order = j; }
-    var t = _habitList[idx].sort_order;
-    _habitList[idx].sort_order = prev.sort_order;
-    prev.sort_order = t;
-  }
-  // 更新 Supabase
-  try {
-    await sb.from('habits').update({ sort_order: _habitList[idx].sort_order }).eq('id', _habitList[idx].id);
-    await sb.from('habits').update({ sort_order: prev.sort_order }).eq('id', prev.id);
-  } catch(e) {}
-  renderHabitList();
-}
-
-async function moveHabitDown(id) {
-  if (!sb) return;
-  if (isNaN(id)) return;
-  _habitList.sort(function(a, b) {
-    var soA = a.sort_order != null ? a.sort_order : 0;
-    var soB = b.sort_order != null ? b.sort_order : 0;
-    if (soA !== soB) return soA - soB;
-    return (a.created_at || '').localeCompare(b.created_at || '');
-  });
-  var idx = -1;
-  for (var i = 0; i < _habitList.length; i++) {
-    if (_habitList[i].id == id) { idx = i; break; }
-  }
-  if (idx < 0 || idx >= _habitList.length - 1) return;
-  var next = _habitList[idx + 1];
-  if (next.archived != _habitList[idx].archived) return;
-  var tmp = _habitList[idx].sort_order;
-  _habitList[idx].sort_order = next.sort_order;
-  next.sort_order = tmp;
-  if (_habitList[idx].sort_order == null && next.sort_order == null || _habitList[idx].sort_order === next.sort_order) {
-    for (var j = 0; j < _habitList.length; j++) { _habitList[j].sort_order = j; }
-    var t = _habitList[idx].sort_order;
-    _habitList[idx].sort_order = next.sort_order;
-    next.sort_order = t;
-  }
-  try {
-    await sb.from('habits').update({ sort_order: _habitList[idx].sort_order }).eq('id', _habitList[idx].id);
-    await sb.from('habits').update({ sort_order: next.sort_order }).eq('id', next.id);
-  } catch(e) {}
-  renderHabitList();
 }
 
 // ===== 习惯日历补打卡 =====
@@ -3354,12 +3279,6 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .habit-item:hover .habit-edit { opacity: 1; }
 .habit-edit:hover { color: var(--accent); }
-.habit-up, .habit-down {
-  font-size: 9px; color: var(--text-muted); cursor: pointer; background: none; border: none;
-  opacity: 0.35; transition: opacity 0.15s; padding: 2px 1px; line-height: 1;
-}
-.habit-item:hover .habit-up, .habit-item:hover .habit-down { opacity: 1; }
-.habit-up:hover, .habit-down:hover { color: var(--accent); }
 .habit-emoji { font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
 
 /* 习惯归档区 */
@@ -3374,7 +3293,7 @@ textarea { resize: vertical; min-height: 80px; }
 .archived-list .habit-item { opacity: 0.5; }
 .archived-list .habit-item:hover { opacity: 0.8; }
 .archived-list .habit-check { pointer-events: none; }
-.archived-list .habit-up, .archived-list .habit-down { display: none; }
+
 
 /* emoji 选择器 */
 .emoji-picker { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-bottom: 10px; max-height: 180px; overflow-y: auto; }
@@ -4447,7 +4366,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug2-6</span></h3>
+          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug2-7</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
           <div id="archived-habit-list"></div>
