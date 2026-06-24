@@ -816,7 +816,7 @@ function changeHabitMonth(delta) {
 
 async function toggleHabitCheck(id) {
   var dbg = document.getElementById('habit-edit-mode-btn');
-  if (!sb) { if (dbg) dbg.textContent = '🐛F:!sb'; return; }
+  if (!sb) { if (dbg) dbg.textContent = '🐛sb类型:' + (typeof sb) + ' 值:' + String(sb); return; }
   var h = _habitList.find(x => x.id == id);
   if (!h) { if (dbg) dbg.textContent = '🐛F:!h'; return; }
   const today = new Date().toISOString().slice(0, 10);
