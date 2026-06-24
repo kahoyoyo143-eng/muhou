@@ -1847,7 +1847,12 @@ async function loadReviewDataSummary() {
     }
   });
 
-  // 5. 备忘完成统计（从持久存储中提取 memo 类型，按 doneAt 月份过滤）
+  // 5. 100件小事年度进度
+  let swTotal = 0, swDone = 0;
+  const { data: swData } = await sb.from('small_wins').select('done').eq('year', y);
+  if (swData) { swTotal = swData.length; swDone = swData.filter(function(x) { return x.done; }).length; }
+
+  // 6. 备忘完成统计（从持久存储中提取 memo 类型，按 doneAt 月份过滤）
   let memoTotal = 0, memoDone = 0;
   const { data: dailyData } = await sb.from('daily_items').select('*').eq('date', '2099-12-31').single();
   (dailyData && dailyData.items || []).forEach(function(it) {
@@ -1857,7 +1862,7 @@ async function loadReviewDataSummary() {
     }
   });
 
-  var stats = { okrMonthDone: okrMonthDone, okrTotal, okrDetail: okrDetail, monthDoneTasks: monthDoneTasks, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, inspDetail: inspDetail, habitsDetail: habitsDetail, memoTotal: memoTotal, memoDone: memoDone };
+  var stats = { okrMonthDone: okrMonthDone, okrTotal, okrDetail: okrDetail, monthDoneTasks: monthDoneTasks, habitDays: habitDays.size, diaryCount, inspCollected, inspPracticed, inspDetail: inspDetail, habitsDetail: habitsDetail, swTotal: swTotal, swDone: swDone, memoTotal: memoTotal, memoDone: memoDone };
   renderReviewDataSummary(stats);
   renderReviewDetails(stats);
 }
@@ -1874,6 +1879,7 @@ function renderReviewDataSummary(stats) {
     '<div class="rv-summary-card"><div class="rv-summary-icon">🔥</div><div class="rv-summary-num">' + stats.habitDays + '</div><div class="rv-summary-label">习惯打卡天数</div><div class="rv-summary-sub">本月共 ' + daysInMonth + ' 天</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">📔</div><div class="rv-summary-num">' + stats.diaryCount + '</div><div class="rv-summary-label">日记篇数</div><div class="rv-summary-sub">本月写了 ' + stats.diaryCount + ' 篇</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">💡</div><div class="rv-summary-num">' + stats.inspPracticed + '</div><div class="rv-summary-label">灵感实践</div><div class="rv-summary-sub">收集 ' + stats.inspCollected + ' · 实践 ' + stats.inspPracticed + '</div></div>' +
+    '<div class="rv-summary-card"><div class="rv-summary-icon">💯</div><div class="rv-summary-num">' + stats.swDone + '/' + stats.swTotal + '</div><div class="rv-summary-label">100件小事</div><div class="rv-summary-sub">年度目标 · 完成 ' + stats.swDone + ' 件</div></div>' +
     '<div class="rv-summary-card"><div class="rv-summary-icon">📝</div><div class="rv-summary-num">' + stats.memoDone + '</div><div class="rv-summary-label">备忘完成</div><div class="rv-summary-sub">共 ' + stats.memoTotal + ' 条 · 完成 ' + stats.memoDone + '</div></div>';
 }
 
@@ -2625,8 +2631,224 @@ document.addEventListener('DOMContentLoaded', function() {
     if (act === 'save-kr-add') saveKRAdd();
     if (act === 'save-habit') saveHabitAdd();
     if (act === 'save-habit-day') saveHabitDay(btn.dataset.date);
+    if (act === 'save-sw-item') saveSWItem();
   });
 });
+
+// ========== 💯 100件小事 ==========
+let _swYear = new Date().getFullYear();
+let _swCategories = [];
+let _swItems = [];
+let _swEditMode = false;
+
+async function loadSWPage() {
+  if (!sb) return;
+  document.getElementById('sw-year-label').textContent = _swYear;
+  await Promise.all([loadSWCategories(), loadSWItems()]);
+  renderSWKanban();
+}
+
+async function loadSWCategories() {
+  const { data } = await sb.from('small_win_categories').select('*').eq('year', String(_swYear)).order('sort_order');
+  _swCategories = data || [];
+}
+
+async function loadSWItems() {
+  const { data } = await sb.from('small_wins').select('*').eq('year', String(_swYear)).order('sort_order');
+  _swItems = data || [];
+}
+
+function renderSWKanban() {
+  const el = document.getElementById('sw-kanban');
+  if (!el) return;
+  const total = _swItems.length;
+  const done = _swItems.filter(function(i) { return i.done; }).length;
+  const progEl = document.getElementById('sw-progress');
+  if (progEl) {
+    progEl.textContent = '已完成 ' + done + '/' + total + (total >= 100 ? ' 🎉' : '（目标 100）');
+  }
+  if (_swCategories.length === 0 && _swItems.length === 0) {
+    el.innerHTML = '<div class="card-empty" style="padding:40px">还没有添加任何小事<br><br><button class="btn" onclick="swAddCategory()">+ 新建分类</button></div>';
+    return;
+  }
+  const catNames = _swCategories.map(function(c) { return c.name; });
+  _swItems.forEach(function(item) {
+    if (catNames.indexOf(item.category) === -1) {
+      item.category = '未分类';
+    }
+  });
+  const itemsByCat = {};
+  _swCategories.forEach(function(c) { itemsByCat[c.name] = []; });
+  if (!itemsByCat['未分类']) itemsByCat['未分类'] = [];
+  _swItems.forEach(function(item) {
+    const cat = item.category || '未分类';
+    if (!itemsByCat[cat]) itemsByCat[cat] = [];
+    itemsByCat[cat].push(item);
+  });
+  var html = '';
+  _swCategories.forEach(function(cat) {
+    html += renderSWColumn(cat, itemsByCat[cat.name] || []);
+  });
+  const uncatItems = itemsByCat['未分类'] || [];
+  if (uncatItems.length > 0 && _swCategories.every(function(c) { return c.name !== '未分类'; })) {
+    html += renderSWColumn({ id: null, name: '未分类', year: String(_swYear), sort_order: 9999 }, uncatItems);
+  }
+  el.innerHTML = html;
+}
+
+function renderSWColumn(cat, items) {
+  const editCls = _swEditMode ? ' edit-mode' : '';
+  const catActions = _swEditMode ? '<button class="sw-col-edit-btn" onclick="event.stopPropagation();swEditCategory(\'' + escHtmlAttr(cat.name) + '\')" title="编辑分类">✏️</button><button class="sw-col-del-btn" onclick="event.stopPropagation();swDeleteCategory(\'' + escHtmlAttr(cat.name) + '\')" title="删除分类">✕</button>' : '';
+  const doneCount = items.filter(function(i) { return i.done; }).length;
+  const countStr = items.length > 0 ? '<span class="sw-col-count">' + doneCount + '/' + items.length + '</span>' : '';
+  var itemsHtml = items.map(function(item) {
+    const checkedCls = item.done ? ' checked' : '';
+    const doneCls = item.done ? ' done' : '';
+    const editModeCls = _swEditMode ? ' edit-mode' : '';
+    const dragAttr = _swEditMode ? ' draggable="true"' : '';
+    const emojiHtml = item.emoji ? '<span class="sw-item-emoji">' + escHtml(item.emoji) + '</span>' : '<span class="sw-item-emoji"></span>';
+    const doneAtStr = item.done && item.done_at ? '<span class="sw-item-done-at">' + (item.done_at || '').slice(0, 10) + '</span>' : '';
+    const memoIcon = item.memo ? '<span class="sw-item-memo-icon has-memo" title="' + escHtmlAttr(item.memo) + '">📝</span>' : '<span class="sw-item-memo-icon">📝</span>';
+    return '<div class="sw-item' + doneCls + editModeCls + '"' + dragAttr + ' data-sid="' + item.id + '" data-cat="' + escHtmlAttr(item.category || '') + '">' +
+      emojiHtml +
+      '<button class="sw-item-check' + checkedCls + '" onclick="event.stopPropagation();swToggleDone(' + item.id + ')">' + (item.done ? '✓' : '') + '</button>' +
+      '<span class="sw-item-title">' + escHtml(item.title) + '</span>' +
+      doneAtStr + memoIcon +
+      '</div>';
+  }).join('');
+  var addBtn = _swEditMode ? '' : '<button class="sw-add-btn" onclick="swAddItem(\'' + escHtmlAttr(cat.name) + '\')">+ 添加小事</button>';
+  return '<div class="sw-col' + editCls + '" data-cat="' + escHtmlAttr(cat.name) + '">' +
+    '<div class="sw-col-header">' +
+    '<span class="sw-col-title">' + escHtml(cat.name) + '</span>' + countStr + catActions +
+    '</div>' +
+    itemsHtml +
+    addBtn +
+    '</div>';
+}
+
+function escHtmlAttr(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function swYearPrev() { _swYear--; loadSWPage(); }
+function swYearNext() { _swYear++; loadSWPage(); }
+
+function toggleSWEditMode() {
+  _swEditMode = !_swEditMode;
+  renderSWKanban();
+  var btn = document.getElementById('sw-edit-mode-btn');
+  if (btn) btn.textContent = _swEditMode ? '✅ 完成排序' : '✋ 排序';
+}
+
+async function swToggleDone(id) {
+  if (!sb || _swEditMode) return;
+  var item = _swItems.find(function(x) { return x.id == id; });
+  if (!item) return;
+  item.done = !item.done;
+  item.done_at = item.done ? new Date().toISOString() : null;
+  await sb.from('small_wins').update({ done: item.done, done_at: item.done_at }).eq('id', id);
+  renderSWKanban();
+}
+
+function swAddItem(catName) {
+  window._swEditingId = null;
+  window._swEditingCat = catName;
+  swOpenItemModal('', '', '', catName);
+}
+
+function swEditItem(id) {
+  var item = _swItems.find(function(x) { return x.id == id; });
+  if (!item) return;
+  window._swEditingId = id;
+  window._swEditingCat = item.category;
+  swOpenItemModal(item.title, item.emoji || '', item.memo || '', item.category);
+}
+
+function swOpenItemModal(title, emoji, memo, category) {
+  var EMOJIS = ['🏔️','✈️','🏖️','🏕️','🚗','🚲','🏃','🏋️','🧘','🏊','🚴','⛷️','🏂','🎿','⛰️','🌋','🏝️','🌍','🗺️','📚','📖','✍️','🎨','🎵','🎸','🎹','🎬','📷','🎥','💻','📱','🎮','🧩','🎲','♟️','🧠','💡','🔬','🧪','🌱','🍳','🍰','🍷','☕','🍵','🐶','🐱','🌸','🌿','💰','💎','🏆','⭐','🌟','🎯','💪','🤝','❤️','🔥','✨','🎉','🎊','💭','📝','✅','☑️','⏰','📅','🔔','🎁','🧳','🗿','🏛️','🎪','🎭','🖼️','📦','🔧','🛠️','💊','🙏','🕯️','☀️','🌙'];
+  var emojiGrid = '<div class="emoji-picker" style="max-height:200px;overflow-y:auto">' + EMOJIS.map(function(e) { return '<button class="emoji-opt' + (emoji === e ? ' selected' : '') + '" onclick="swPickEmoji(this,\'' + e + '\')">' + e + '</button>'; }).join('') + '</div>';
+  var catOptions = _swCategories.map(function(c) {
+    var sel = c.name === category ? ' selected' : '';
+    return '<option value="' + escHtmlAttr(c.name) + '"' + sel + '>' + escHtml(c.name) + '</option>';
+  }).join('');
+  if (!catOptions) catOptions = '<option value="未分类">未分类</option>';
+  var html = '<div class="modal-overlay" onclick="if(event.target===this)closeOKRModal()"><div class="modal-box" style="max-width:440px"><h3>' + (window._swEditingId ? '编辑小事' : '添加小事') + '</h3>' +
+    '<label>图标</label>' + emojiGrid +
+    '<label>标题</label><input id="sw-e-title" value="' + escHtmlAttr(title) + '" placeholder="例如：爬黄山">' +
+    '<label>分类</label><select id="sw-e-cat">' + catOptions + '</select>' +
+    '<label>备忘录</label><textarea id="sw-e-memo" rows="2" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:var(--font);resize:vertical" placeholder="备注信息...">' + escHtmlAttr(memo) + '</textarea>' +
+    '<div class="btn-row" style="margin-top:10px"><button class="btn" data-act="close-modal">取消</button><button class="btn accent" data-act="save-sw-item">💾 保存</button></div></div></div>';
+  document.getElementById('okr-modal-container').innerHTML = html;
+  window._selectedEmoji = emoji;
+}
+
+function swPickEmoji(btn, emoji) {
+  document.querySelectorAll('#okr-modal-container .emoji-opt').forEach(function(b) { b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  window._selectedEmoji = emoji;
+}
+
+async function saveSWItem() {
+  var title = document.getElementById('sw-e-title').value.trim();
+  if (!title) { alert('请输入标题'); return; }
+  var cat = document.getElementById('sw-e-cat').value;
+  var memo = document.getElementById('sw-e-memo').value.trim();
+  var emoji = window._selectedEmoji || '';
+  if (window._swEditingId) {
+    var item = _swItems.find(function(x) { return x.id == window._swEditingId; });
+    if (!item) return;
+    item.title = title; item.emoji = emoji; item.category = cat; item.memo = memo;
+    await sb.from('small_wins').update({ title: title, emoji: emoji, category: cat, memo: memo }).eq('id', window._swEditingId);
+  } else {
+    var maxSo = 0;
+    _swItems.filter(function(x) { return x.category === cat; }).forEach(function(x) { if ((x.sort_order || 0) > maxSo) maxSo = x.sort_order || 0; });
+    var newItem = { year: String(_swYear), category: cat, title: title, emoji: emoji, memo: memo, done: false, sort_order: maxSo + 1 };
+    var { data, error } = await sb.from('small_wins').insert(newItem).select();
+    if (error) { console.error('添加小事失败:', error); return; }
+    if (data && data[0]) _swItems.push(data[0]);
+  }
+  closeOKRModal();
+  renderSWKanban();
+}
+
+document.addEventListener('click', function(ev) {
+  var card = ev.target.closest('.sw-item');
+  if (!card) return;
+  if (ev.target.closest('.sw-item-check') || ev.target.closest('button')) return;
+  if (_swEditMode) return;
+  var sid = parseInt(card.dataset.sid);
+  if (!isNaN(sid)) swEditItem(sid);
+});
+
+function swAddCategory() {
+  var name = prompt('输入新分类名称：');
+  if (!name || !name.trim()) return;
+  name = name.trim();
+  if (_swCategories.some(function(c) { return c.name === name; })) { alert('分类名已存在'); return; }
+  var maxSo = 0;
+  _swCategories.forEach(function(c) { if ((c.sort_order || 0) > maxSo) maxSo = c.sort_order || 0; });
+  sb.from('small_win_categories').insert({ year: String(_swYear), name: name, sort_order: maxSo + 1 }).then(function() { loadSWPage(); });
+}
+
+function swEditCategory(oldName) {
+  var newName = prompt('修改分类名称：', oldName);
+  if (!newName || !newName.trim() || newName.trim() === oldName) return;
+  newName = newName.trim();
+  if (_swCategories.some(function(c) { return c.name === newName; })) { alert('分类名已存在'); return; }
+  Promise.all([
+    sb.from('small_win_categories').update({ name: newName }).eq('year', String(_swYear)).eq('name', oldName),
+    sb.from('small_wins').update({ category: newName }).eq('year', String(_swYear)).eq('category', oldName)
+  ]).then(function() { loadSWPage(); });
+}
+
+function swDeleteCategory(name) {
+  if (!confirm('确定删除分类「' + name + '」及其所有小事吗？此操作不可恢复。')) return;
+  Promise.all([
+    sb.from('small_win_categories').delete().eq('year', String(_swYear)).eq('name', name),
+    sb.from('small_wins').delete().eq('year', String(_swYear)).eq('category', name)
+  ]).then(function() { loadSWPage(); });
+}
+
 
 </script>
 <style>
@@ -3755,6 +3977,133 @@ textarea { resize: vertical; min-height: 80px; }
 }
 
 /* ============================================
+   100件小事
+   ============================================ */
+.sw-header {
+  display: flex; align-items: center; gap: 16px; margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.sw-year-nav {
+  display: flex; align-items: center; gap: 8px;
+}
+.sw-year-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.sw-year-btn:hover { background: var(--surface-hover); border-color: var(--accent); }
+.sw-year-label {
+  font-size: 18px; font-weight: 700; color: var(--text); min-width: 60px; text-align: center;
+}
+.sw-progress {
+  font-size: 14px; color: var(--accent); font-weight: 600;
+  background: rgba(231,111,81,0.1); padding: 4px 12px; border-radius: 20px;
+}
+.sw-header-actions {
+  margin-left: auto; display: flex; align-items: center;
+}
+
+/* 看板容器 */
+.sw-kanban {
+  display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px;
+  align-items: flex-start;
+}
+.sw-kanban::-webkit-scrollbar { height: 6px; }
+.sw-kanban::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* 分类列 */
+.sw-col {
+  min-width: 240px; max-width: 300px; flex-shrink: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+}
+.sw-col-header {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 2px solid var(--accent);
+}
+.sw-col-title {
+  font-size: 14px; font-weight: 600; color: var(--text); flex: 1;
+}
+.sw-col-count {
+  font-size: 11px; color: var(--text-muted); background: var(--bg);
+  padding: 2px 8px; border-radius: 10px;
+}
+.sw-col-edit-btn, .sw-col-del-btn {
+  display: none;
+  width: 24px; height: 24px; border-radius: 4px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12px; color: var(--text-muted); transition: all 0.12s;
+}
+.sw-col-edit-btn:hover, .sw-col-del-btn:hover { background: var(--surface-hover); color: var(--text); }
+.sw-col-del-btn:hover { color: var(--danger); }
+.edit-mode .sw-col-edit-btn, .edit-mode .sw-col-del-btn { display: flex; align-items: center; justify-content: center; }
+
+/* 小事卡片 */
+.sw-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; margin-bottom: 4px;
+  border-radius: 6px; cursor: pointer; transition: all 0.12s;
+  border: 1px solid transparent;
+}
+.sw-item:hover { background: var(--surface-hover); }
+.sw-item.done .sw-item-title { text-decoration: line-through; color: var(--text-muted); }
+.sw-item-emoji { font-size: 16px; flex-shrink: 0; width: 24px; text-align: center; }
+.sw-item-check {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--border); background: transparent;
+  cursor: pointer; flex-shrink: 0; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: transparent;
+}
+.sw-item-check:hover { border-color: var(--accent); }
+.sw-item-check.checked { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sw-item-title { font-size: 13px; color: var(--text); flex: 1; word-break: break-word; }
+.sw-item-done-at { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.sw-item-memo-icon {
+  font-size: 12px; color: var(--text-muted); flex-shrink: 0;
+  opacity: 0; transition: opacity 0.12s;
+}
+.sw-item:hover .sw-item-memo-icon { opacity: 1; }
+.sw-item-memo-icon.has-memo { opacity: 1; color: var(--accent); }
+
+/* 编辑模式下的卡片 */
+.sw-item.edit-mode {
+  border: 2px dashed var(--accent); cursor: grab; background: #FFF9F5;
+}
+.sw-item.edit-mode:hover { background: #FFF3EB; }
+.sw-item.edit-mode .sw-item-check,
+.sw-item.edit-mode .sw-item-memo-icon { opacity: 0.4; pointer-events: none; }
+
+/* 编辑模式下的分类列 */
+.sw-col.edit-mode {
+  border: 2px dashed var(--accent);
+}
+.sw-col.drag-over {
+  border-color: var(--accent); background: #FFF9F5; box-shadow: 0 0 8px rgba(231,111,81,0.3);
+}
+
+/* 添加按钮 */
+.sw-add-btn {
+  width: 100%; padding: 8px; margin-top: 4px;
+  border: 1px dashed var(--border); border-radius: 6px;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  font-size: 13px; transition: all 0.12s;
+}
+.sw-add-btn:hover { border-color: var(--accent); color: var(--accent); background: #FFF9F5; }
+
+/* 拖拽中的元素 */
+.sw-item.dragging { opacity: 0.4; }
+
+@media (max-width: 768px) {
+  .sw-header { gap: 10px; }
+  .sw-header-actions { margin-left: 0; }
+  .sw-col { min-width: 200px; max-width: 260px; }
+  .sw-year-label { font-size: 16px; }
+}
+
+/* ============================================
    复盘
    ============================================ */
 .rv-layout {
@@ -3836,7 +4185,7 @@ textarea { resize: vertical; min-height: 80px; }
 /* 数据汇总卡片 */
 .rv-summary {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 10px;
   margin-bottom: 24px;
 }
@@ -4030,7 +4379,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 @media (max-width: 768px) {
   .rv-layout { grid-template-columns: 1fr; }
-  .rv-summary { grid-template-columns: repeat(2, 1fr); }
+  .rv-summary { grid-template-columns: repeat(3, 1fr); }
   .rv-textarea { min-height: 100px; font-size: 13px; }
   .rv-okr-name { min-width: 80px; max-width: 120px; font-size: 12px; }
   .rv-okr-count { font-size: 12px; min-width: 28px; }
@@ -4326,6 +4675,7 @@ textarea { resize: vertical; min-height: 80px; }
   <div class="sidebar-logo">幕<span>後</span></div>
   <a data-page="okr" class="active" onclick="switchPage('okr')"><span class="icon">🎯</span>OKR+习惯</a>
   <a data-page="vision" onclick="switchPage('vision')"><span class="icon">🌟</span>愿景版</a>
+  <a data-page="smallwins" onclick="switchPage('smallwins')"><span class="icon">💯</span>100件小事</a>
   <a data-page="inspiration" onclick="switchPage('inspiration')"><span class="icon">📥</span>灵感库</a>
   <a data-page="diary" onclick="switchPage('diary')"><span class="icon">📔</span>日记</a>
   <a data-page="review" onclick="switchPage('review')"><span class="icon">📋</span>复盘</a>
@@ -4355,6 +4705,23 @@ textarea { resize: vertical; min-height: 80px; }
     </div>
   </div>
 
+  <!-- ========== 💯 100件小事 ========== -->
+  <div class="page" id="page-smallwins">
+    <div class="page-title">💯 100件小事</div>
+    <div class="sw-header">
+      <div class="sw-year-nav">
+        <button class="sw-year-btn" onclick="swYearPrev()">◀</button>
+        <span class="sw-year-label" id="sw-year-label">2026</span>
+        <button class="sw-year-btn" onclick="swYearNext()">▶</button>
+      </div>
+      <div class="sw-progress" id="sw-progress"></div>
+      <div class="sw-header-actions">
+        <button class="btn-sm" onclick="swAddCategory()">+ 分类</button>
+        <button class="btn-sm" id="sw-edit-mode-btn" onclick="toggleSWEditMode()" style="margin-left:6px">✋ 排序</button>
+      </div>
+    </div>
+    <div class="sw-kanban" id="sw-kanban"></div>
+  </div>
 
   <!-- ========== 🎯 OKR ========== -->
   <div class="page active" id="page-okr">
@@ -4416,7 +4783,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <button class="btn-sm" id="habit-edit-mode-btn" onclick="toggleHabitEditMode()" style="margin-left:8px;font-size:11px;padding:2px 8px">✋ 排序</button> <span style="color:red;font-size:11px;font-weight:normal">● v9</span></h3>
+          <h3>🔄 今日习惯 <button class="btn-sm" id="habit-edit-mode-btn" onclick="toggleHabitEditMode()" style="margin-left:8px;font-size:11px;padding:2px 8px">✋ 排序</button></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
         </div>
@@ -4662,6 +5029,7 @@ function switchPage(name) {
   // 加载对应页面数据
   if (name === 'dashboard') { switchPage('okr'); return; }
   if (name === 'vision') loadVision();
+  if (name === 'smallwins') loadSWPage();
   if (name === 'okr') loadOKRPage();
   if (name === 'inspiration') loadInspData();
   if (name === 'diary') loadDiaryPage();
