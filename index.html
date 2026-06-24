@@ -9,6 +9,7 @@
 // ========== OKR + 习惯 ==========
 let _okrList = [];
 let _habitList = [];
+let _habitEditMode = false;
 let _todayItems = [];
 let _memoItems = [];
 let _okrPeriodQ = '2026-Q2';
@@ -619,7 +620,10 @@ function renderHabitList() {
     const checked = h.checkins && h.checkins[today];
     const streak = calcStreak(h.checkins);
     const emojiHtml = h.emoji ? '<span class="habit-emoji">' + h.emoji + '</span>' : '';
-    return '<div class="habit-item" draggable="true" data-hid="' + h.id + '">' + emojiHtml + '<button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-edit" title="编辑">✏️</button><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
+    var dragAttr = _habitEditMode ? ' draggable="true"' : '';
+    var editCls = _habitEditMode ? ' edit-mode' : '';
+    var dragHandle = _habitEditMode ? '<span class="habit-drag-handle" title="拖拽排序">⋮⋮</span>' : '';
+    return '<div class="habit-item' + editCls + '"' + dragAttr + ' data-hid="' + h.id + '">' + dragHandle + emojiHtml + '<button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-edit" title="编辑">✏️</button><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
   };
 
   // 活跃习惯 → #habit-list
@@ -641,14 +645,8 @@ function renderHabitList() {
     if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
   };
 
-  // 拖拽排序 — 活跃习惯
-  // mousedown 的 preventDefault 阻止浏览器启动拖拽（HTML5 规范做法）
+  // 拖拽排序 — 仅编辑模式下生效（普通模式下 draggable=false，无冲突）
   var _dragId = null;
-  el.onmousedown = function(ev) {
-    if (ev.target.closest('button')) {
-      ev.preventDefault();
-    }
-  };
   el.ondragstart = function(ev) {
     var item = ev.target.closest('.habit-item');
     if (!item) { ev.preventDefault(); return; }
@@ -842,6 +840,15 @@ async function syncHabitToDiary(habitTitle) {
       autoEntries.push(entry);
       await sb.from('diaries').update({ auto_entries: autoEntries }).eq('date', today);
     }
+  }
+}
+
+function toggleHabitEditMode() {
+  _habitEditMode = !_habitEditMode;
+  renderHabitList();
+  var btn = document.getElementById('habit-edit-mode-btn');
+  if (btn) {
+    btn.textContent = _habitEditMode ? '✅ 完成排序' : '✋ 排序';
   }
 }
 
@@ -3314,6 +3321,22 @@ textarea { resize: vertical; min-height: 80px; }
 #archived-habit-list .habit-item:hover { opacity: 0.8; }
 #archived-habit-list .habit-check { pointer-events: none; }
 
+/* 编辑模式（拖拽排序） */
+.habit-item.edit-mode {
+  border: 2px dashed var(--accent); border-radius: 8px;
+  padding: 10px 12px; margin: 4px 0;
+  background: #FFF9F5; cursor: grab;
+  transition: all 0.2s;
+}
+.habit-item.edit-mode:hover { background: #FFF3EB; }
+.habit-item.edit-mode:last-child { border-bottom: 2px dashed var(--accent); }
+.habit-item.edit-mode .habit-del,
+.habit-item.edit-mode .habit-edit,
+.habit-item.edit-mode .habit-archive { opacity: 0.4; }
+.habit-drag-handle {
+  font-size: 16px; color: var(--accent); cursor: grab;
+  letter-spacing: -2px; flex-shrink: 0; user-select: none;
+}
 
 /* emoji 选择器 */
 .emoji-picker { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-bottom: 10px; max-height: 180px; overflow-y: auto; }
@@ -4392,7 +4415,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● v6</span></h3>
+          <h3>🔄 今日习惯 <button class="btn-sm" id="habit-edit-mode-btn" onclick="toggleHabitEditMode()" style="margin-left:8px;font-size:11px;padding:2px 8px">✋ 排序</button> <span style="color:red;font-size:11px;font-weight:normal">● v7</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
         </div>
