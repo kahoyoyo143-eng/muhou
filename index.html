@@ -635,18 +635,23 @@ function renderHabitList() {
 
   // 事件委托：活跃习惯
   el.onclick = function(ev) {
-    // DEBUG v8: 确认点击事件是否触发
-    var debugTarget = ev.target.tagName;
-    if (ev.target.className) debugTarget += '.' + String(ev.target.className).split(' ')[0];
-    document.getElementById('habit-edit-mode-btn').textContent = '🐛点:' + debugTarget;
+    var dbg = document.getElementById('habit-edit-mode-btn');
+    dbg.textContent = '🐛1';
     const item = ev.target.closest('.habit-item');
-    if (!item) return;
+    if (!item) { dbg.textContent = '🐛no-item'; return; }
+    dbg.textContent = '🐛2';
     const hid = parseInt(item.dataset.hid);
-    if (isNaN(hid)) return;
-    if (ev.target.closest('.habit-check')) toggleHabitCheck(hid);
-    if (ev.target.closest('.habit-edit')) editHabit(hid);
-    if (ev.target.closest('.habit-del')) deleteHabit(hid);
-    if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
+    if (isNaN(hid)) { dbg.textContent = '🐛bad-hid:' + item.dataset.hid; return; }
+    dbg.textContent = '🐛3';
+    var isCheck = ev.target.closest('.habit-check');
+    var isEdit = ev.target.closest('.habit-edit');
+    var isDel = ev.target.closest('.habit-del');
+    var isArch = ev.target.closest('.habit-archive');
+    dbg.textContent = '🐛4:c=' + !!isCheck + ' e=' + !!isEdit + ' d=' + !!isDel + ' a=' + !!isArch;
+    if (isCheck) toggleHabitCheck(hid);
+    if (isEdit) editHabit(hid);
+    if (isDel) deleteHabit(hid);
+    if (isArch) toggleHabitArchive(hid);
   };
 
   // 拖拽排序 — 仅编辑模式下启用拖拽处理器
