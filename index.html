@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>幕後 — 个人创作操作系统</title>
+<title>幕後——人生电影留痕日记</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 // ========== OKR + 习惯 ==========
@@ -344,6 +344,11 @@ function renderMemoItems() {
     el.innerHTML = '<div class="card-empty" style="font-size:12px;padding:2px 0">暂无备忘</div>';
     return;
   }
+  // 排序：未完成在上，已完成在下，同状态按创建时间升序
+  _memoItems.sort(function(a, b) {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return (a.createdAt || '0').localeCompare(b.createdAt || '0');
+  });
   el.innerHTML = _memoItems.map(function(item, i) {
     const doneClass = item.done ? ' done' : '';
     return '<div class="memo-item' + doneClass + '"><input type="checkbox" ' + (item.done ? 'checked' : '') + ' onchange="toggleMemoItem(' + i + ',this.checked)"><span class="memo-label">' + escHtml(item.title) + '</span><button class="memo-remove" onclick="removeMemoItem(' + i + ')">✕</button></div>';
@@ -353,7 +358,7 @@ function renderMemoItems() {
 async function addMemo() {
   const input = document.getElementById('memo-input');
   if (!input || !input.value.trim()) return;
-  _memoItems.push({ title: input.value.trim(), done: false, doneAt: null, type: 'memo' });
+  _memoItems.push({ title: input.value.trim(), done: false, doneAt: null, createdAt: new Date().toISOString(), type: 'memo' });
   input.value = '';
   await saveMemoItems();
   renderMemoItems();
@@ -528,9 +533,10 @@ async function loadHabitData() {
       { title: '看综艺/电视剧', emoji: '📺' },
       { title: '做手工', emoji: '🧶' }
     ];
-    for (const h of defaults) {
+    for (let hi = 0; hi < defaults.length; hi++) {
+      const h = defaults[hi];
       const { data: d } = await sb.from('habits').insert({
-        title: h.title, emoji: h.emoji, rhythm: 'daily', target_count: 7, weekly_days: [], rest_days: [], checkins: {}, archived: false
+        title: h.title, emoji: h.emoji, rhythm: 'daily', target_count: 7, weekly_days: [], rest_days: [], sort_order: hi + 1, checkins: {}, archived: false
       }).select();
       if (d && d[0]) _habitList.push(d[0]);
     }
@@ -549,6 +555,13 @@ function renderHabitList() {
     return;
   }
   const today = new Date().toISOString().slice(0, 10);
+  // 按 sort_order 排序（同值按创建时间）
+  _habitList.sort(function(a, b) {
+    var soA = a.sort_order != null ? a.sort_order : 0;
+    var soB = b.sort_order != null ? b.sort_order : 0;
+    if (soA !== soB) return soA - soB;
+    return (a.created_at || '').localeCompare(b.created_at || '');
+  });
   const active = _habitList.filter(h => !h.archived);
   const archived = _habitList.filter(h => h.archived);
 
@@ -556,7 +569,7 @@ function renderHabitList() {
     const checked = h.checkins && h.checkins[today];
     const streak = calcStreak(h.checkins);
     const emojiHtml = h.emoji ? '<span class="habit-emoji">' + h.emoji + '</span>' : '';
-    return '<div class="habit-item" data-hid="' + h.id + '">' + emojiHtml + '<button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-edit" title="编辑">✏️</button><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
+    return '<div class="habit-item" data-hid="' + h.id + '">' + emojiHtml + '<button class="habit-up" title="上移">▲</button><button class="habit-down" title="下移">▼</button><button class="habit-check' + (checked ? ' checked' : '') + '">' + (checked ? '✓' : '') + '</button><span class="habit-name">' + escHtml(h.title) + '</span><span class="habit-streak">🔥 ' + streak + ' 天</span><button class="habit-edit" title="编辑">✏️</button><button class="habit-archive" title="归档">📦</button><button class="habit-del">✕</button></div>';
   };
 
   let html = active.map(renderItem).join('');
@@ -576,6 +589,8 @@ function renderHabitList() {
     if (item) {
       const hid = item.dataset.hid;
       if (ev.target.closest('.habit-check')) toggleHabitCheck(hid);
+      if (ev.target.closest('.habit-up')) moveHabitUp(hid);
+      if (ev.target.closest('.habit-down')) moveHabitDown(hid);
       if (ev.target.closest('.habit-edit')) editHabit(hid);
       if (ev.target.closest('.habit-del')) deleteHabit(hid);
       if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
@@ -628,7 +643,7 @@ function renderHabitCalendar() {
     let cls = 'day-cell';
     if (isChecked) cls += ' checked';
     if (isToday) cls += ' today';
-    html += '<div class="day-cell' + cls + '">' + d + '</div>';
+    html += '<div class="day-cell' + cls + '" data-date="' + dateStr + '" onclick="openHabitDayPopup(\'' + dateStr + '\')">' + d + '</div>';
   }
 
   el.innerHTML = html;
@@ -826,9 +841,12 @@ async function saveHabitAdd() {
     }
     window._editingHabitId = null;
   } else {
+    // 新建习惯放在最后
+    var maxOrder = 0;
+    _habitList.forEach(function(h) { if ((h.sort_order || 0) > maxOrder) maxOrder = h.sort_order || 0; });
     const { data, error } = await sb.from('habits').insert({
       title: title, emoji: emoji, rhythm: rhythm, target_count: targetCount,
-      weekly_days: weeklyDays, rest_days: restDays, checkins: {}, archived: false
+      weekly_days: weeklyDays, rest_days: restDays, sort_order: maxOrder + 1, checkins: {}, archived: false
     }).select();
     if (error) { alert('添加失败: ' + error.message); return; }
     if (data && data[0]) _habitList.push(data[0]);
@@ -853,6 +871,108 @@ async function deleteHabit(id) {
   if (!confirm('删除习惯「' + h.title + '」吗？打卡记录会一起删除。')) return;
   await sb.from('habits').delete().eq('id', id);
   _habitList = _habitList.filter(x => x.id !== id);
+  renderHabitList();
+  renderHabitCalendar();
+  renderHabitHeatmap();
+}
+
+// ===== 习惯排序 =====
+async function moveHabitUp(id) {
+  if (!sb) return;
+  var current = _habitList.find(function(h) { return h.id === id; });
+  if (!current) return;
+  // 只在同组（活跃/归档）内排序
+  var group = _habitList.filter(function(h) { return h.archived === current.archived; });
+  group.sort(function(a, b) {
+    var soA = a.sort_order != null ? a.sort_order : 0;
+    var soB = b.sort_order != null ? b.sort_order : 0;
+    if (soA !== soB) return soA - soB;
+    return (a.created_at || '').localeCompare(b.created_at || '');
+  });
+  var idx = group.findIndex(function(h) { return h.id === id; });
+  if (idx <= 0) return;
+  var above = group[idx - 1];
+  var tmp = current.sort_order || 0;
+  current.sort_order = above.sort_order || 0;
+  above.sort_order = tmp;
+  await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
+  await sb.from('habits').update({ sort_order: above.sort_order }).eq('id', above.id);
+  var localA = _habitList.find(function(h) { return h.id === current.id; });
+  var localB = _habitList.find(function(h) { return h.id === above.id; });
+  if (localA) localA.sort_order = current.sort_order;
+  if (localB) localB.sort_order = above.sort_order;
+  renderHabitList();
+}
+
+async function moveHabitDown(id) {
+  if (!sb) return;
+  var current = _habitList.find(function(h) { return h.id === id; });
+  if (!current) return;
+  var group = _habitList.filter(function(h) { return h.archived === current.archived; });
+  group.sort(function(a, b) {
+    var soA = a.sort_order != null ? a.sort_order : 0;
+    var soB = b.sort_order != null ? b.sort_order : 0;
+    if (soA !== soB) return soA - soB;
+    return (a.created_at || '').localeCompare(b.created_at || '');
+  });
+  var idx = group.findIndex(function(h) { return h.id === id; });
+  if (idx < 0 || idx >= group.length - 1) return;
+  var below = group[idx + 1];
+  var tmp = current.sort_order || 0;
+  current.sort_order = below.sort_order || 0;
+  below.sort_order = tmp;
+  await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
+  await sb.from('habits').update({ sort_order: below.sort_order }).eq('id', below.id);
+  var localA = _habitList.find(function(h) { return h.id === current.id; });
+  var localB = _habitList.find(function(h) { return h.id === below.id; });
+  if (localA) localA.sort_order = current.sort_order;
+  if (localB) localB.sort_order = below.sort_order;
+  renderHabitList();
+}
+
+// ===== 习惯日历补打卡 =====
+function openHabitDayPopup(dateStr) {
+  var activeHabits = _habitList.filter(function(h) { return !h.archived; });
+  if (activeHabits.length === 0) { alert('还没有活跃的习惯'); return; }
+
+  var dateDisplay = new Date(dateStr + 'T00:00:00').toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  var habitChecks = activeHabits.map(function(h) {
+    var checked = h.checkins && h.checkins[dateStr];
+    var emojiHtml = h.emoji ? '<span style="font-size:16px">' + h.emoji + '</span>' : '';
+    return '<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:14px">' +
+      '<input type="checkbox" ' + (checked ? 'checked' : '') + ' data-hid="' + h.id + '">' +
+      emojiHtml + '<span>' + escHtml(h.title) + '</span></label>';
+  }).join('');
+
+  var html = '<div class="modal-overlay" onclick="if(event.target===this)closeOKRModal()"><div class="modal-box" style="max-width:400px"><h3>📅 ' + dateDisplay + '</h3>' +
+    '<p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">勾选当天完成的习惯</p>' +
+    '<div style="max-height:340px;overflow-y:auto;margin-bottom:12px">' + habitChecks + '</div>' +
+    '<div class="btn-row"><button class="btn" data-act="close-modal">取消</button><button class="btn accent" data-act="save-habit-day" data-date="' + dateStr + '">💾 保存</button></div></div></div>';
+  document.getElementById('okr-modal-container').innerHTML = html;
+}
+
+async function saveHabitDay(dateStr) {
+  if (!sb) return;
+  var checkboxes = document.querySelectorAll('#okr-modal-container input[type="checkbox"][data-hid]');
+  for (var i = 0; i < checkboxes.length; i++) {
+    var cb = checkboxes[i];
+    var hid = cb.dataset.hid;
+    var h = _habitList.find(function(x) { return x.id === hid; });
+    if (!h) continue;
+    if (!h.checkins) h.checkins = {};
+    var wasChecked = !!h.checkins[dateStr];
+    var isChecked = cb.checked;
+    if (wasChecked === isChecked) continue; // 没变化
+    if (isChecked) {
+      h.checkins[dateStr] = true;
+    } else {
+      delete h.checkins[dateStr];
+    }
+    await sb.from('habits').update({ checkins: h.checkins }).eq('id', hid);
+    // 如果新打卡了，同步到日记
+    if (isChecked) await syncHabitToDiary(h.title);
+  }
+  closeOKRModal();
   renderHabitList();
   renderHabitCalendar();
   renderHabitHeatmap();
@@ -2423,6 +2543,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (act === 'close-modal') closeOKRModal();
     if (act === 'save-okr') saveOKR();
     if (act === 'save-habit') saveHabitAdd();
+    if (act === 'save-habit-day') saveHabitDay(btn.dataset.date);
   });
 });
 
@@ -3097,6 +3218,12 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .habit-item:hover .habit-edit { opacity: 1; }
 .habit-edit:hover { color: var(--accent); }
+.habit-up, .habit-down {
+  font-size: 9px; color: var(--text-muted); cursor: pointer; background: none; border: none;
+  opacity: 0; transition: opacity 0.15s; padding: 2px 1px; line-height: 1;
+}
+.habit-item:hover .habit-up, .habit-item:hover .habit-down { opacity: 1; }
+.habit-up:hover, .habit-down:hover { color: var(--accent); }
 .habit-emoji { font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
 
 /* 习惯归档区 */
@@ -3111,6 +3238,7 @@ textarea { resize: vertical; min-height: 80px; }
 .archived-list .habit-item { opacity: 0.5; }
 .archived-list .habit-item:hover { opacity: 0.8; }
 .archived-list .habit-check { pointer-events: none; }
+.archived-list .habit-up, .archived-list .habit-down { display: none; }
 
 /* emoji 选择器 */
 .emoji-picker { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-bottom: 10px; max-height: 180px; overflow-y: auto; }
@@ -3149,8 +3277,9 @@ textarea { resize: vertical; min-height: 80px; }
 .habit-calendar .day-cell {
   display: flex; align-items: center; justify-content: center;
   border-radius: 3px; font-size: 10px; color: var(--text-muted);
-  padding: 6px 0;
+  padding: 6px 0; cursor: pointer; transition: background 0.15s;
 }
+.habit-calendar .day-cell:hover:not(.empty) { background: rgba(231,111,81,0.15); }
 .habit-calendar .day-cell.checked { background: var(--accent); color: #fff; }
 .habit-calendar .day-cell.today { box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
 
