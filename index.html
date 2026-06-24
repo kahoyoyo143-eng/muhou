@@ -709,6 +709,19 @@ function renderHabitList() {
   }
 }
 
+// 判断某天是否所有活跃习惯都是休息日
+function isAllRestDay(dateStr) {
+  var active = _habitList.filter(function(h) { return !h.archived; });
+  if (active.length === 0) return false;
+  var day = new Date(dateStr + 'T00:00:00').getDay();
+  return active.every(function(h) {
+    var rest = h.rest_days;
+    if (!rest) return false;
+    if (typeof rest === 'string') rest = rest.split(',').map(Number);
+    return rest.indexOf(day) !== -1;
+  });
+}
+
 function renderHabitCalendar() {
   const el = document.getElementById('habit-calendar');
   const titleEl = document.getElementById('habit-cal-title');
@@ -741,10 +754,12 @@ function renderHabitCalendar() {
     const dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const isChecked = allChecks.has(dateStr);
     const isToday = dateStr === todayStr;
+    const isRest = !isChecked && isAllRestDay(dateStr);
     let cls = 'day-cell';
     if (isChecked) cls += ' checked';
     if (isToday) cls += ' today';
-    html += '<div class="day-cell' + cls + '" data-date="' + dateStr + '" onclick="openHabitDayPopup(\'' + dateStr + '\')">' + d + '</div>';
+    if (isRest) cls += ' rest';
+    html += '<div class="' + cls + '" data-date="' + dateStr + '"' + (isRest ? '' : ' onclick="openHabitDayPopup(\'' + dateStr + '\')"') + '>' + d + '</div>';
   }
 
   el.innerHTML = html;
@@ -769,12 +784,15 @@ function renderHabitHeatmap() {
   while (d <= new Date()) {
     const key = d.toISOString().slice(0, 10);
     const count = dayCount[key] || 0;
-    let level = '';
-    if (count >= _habitList.length * 0.8) level = ' l4';
-    else if (count >= _habitList.length * 0.5) level = ' l3';
-    else if (count >= _habitList.length * 0.2) level = ' l2';
-    else if (count > 0) level = ' l1';
-    cells.push('<div class="hm-cell' + level + '" title="' + key + ': ' + count + '项打卡"></div>');
+    const isRest = count === 0 && isAllRestDay(key);
+    let cls = 'hm-cell';
+    if (isRest) {
+      cls += ' rest';
+    } else if (count >= _habitList.length * 0.8) { cls += ' l4'; }
+    else if (count >= _habitList.length * 0.5) { cls += ' l3'; }
+    else if (count >= _habitList.length * 0.2) { cls += ' l2'; }
+    else if (count > 0) { cls += ' l1'; }
+    cells.push('<div class="' + cls + '" title="' + key + ': ' + count + '项打卡' + (isRest ? ' (全休日)' : '') + '"></div>');
     d.setDate(d.getDate() + 1);
   }
   el.innerHTML = cells.join('');
@@ -3334,11 +3352,17 @@ textarea { resize: vertical; min-height: 80px; }
 .habit-calendar .day-cell.checked { background: var(--accent); color: #fff; }
 .habit-calendar .day-cell.today { box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
 
+.habit-calendar .day-cell.rest {
+  background: var(--bg); color: var(--border); cursor: default;
+}
+.habit-calendar .day-cell.rest:hover { background: var(--bg); }
+
 /* 热力图（迷你） */
 .heatmap-mini { display: flex; gap: 2px; flex-wrap: wrap; align-items: flex-end; margin-top: 4px; }
 .heatmap-mini .hm-cell {
   width: 10px; height: 10px; border-radius: 2px; background: var(--border); flex-shrink: 0;
 }
+.heatmap-mini .hm-cell.rest { background: var(--bg); }
 .heatmap-mini .hm-cell.l1 { background: rgba(231,111,81,0.2); }
 .heatmap-mini .hm-cell.l2 { background: rgba(231,111,81,0.4); }
 .heatmap-mini .hm-cell.l3 { background: rgba(231,111,81,0.65); }
