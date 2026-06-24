@@ -741,7 +741,7 @@ function changeHabitMonth(delta) {
 
 async function toggleHabitCheck(id) {
   if (!sb) return;
-  const h = _habitList.find(x => x.id === id);
+  const h = _habitList.find(x => x.id == id);
   if (!h) return;
   const today = new Date().toISOString().slice(0, 10);
   if (!h.checkins) h.checkins = {};
@@ -825,7 +825,7 @@ function pickEmoji(btn, emoji) {
 }
 
 async function editHabit(hid) {
-  const h = _habitList.find(function(x) { return x.id === hid; });
+  const h = _habitList.find(function(x) { return x.id == hid; });
   if (!h) return;
 
   // 复用添加弹窗，预填数据
@@ -887,7 +887,7 @@ async function saveHabitAdd() {
     }).eq('id', hid);
     if (error) { alert('保存失败: ' + error.message); return; }
     // 更新本地缓存
-    var h = _habitList.find(function(x) { return x.id === hid; });
+    var h = _habitList.find(function(x) { return x.id == hid; });
     if (h) {
       h.title = title; h.emoji = emoji; h.rhythm = rhythm;
       h.target_count = targetCount; h.weekly_days = weeklyDays; h.rest_days = restDays;
@@ -911,7 +911,7 @@ async function saveHabitAdd() {
 }
 
 async function toggleHabitArchive(id) {
-  const h = _habitList.find(function(x) { return x.id === id; });
+  const h = _habitList.find(function(x) { return x.id == id; });
   if (!h) return;
   h.archived = !h.archived;
   await sb.from('habits').update({ archived: h.archived }).eq('id', id);
@@ -919,11 +919,11 @@ async function toggleHabitArchive(id) {
 }
 
 async function deleteHabit(id) {
-  const h = _habitList.find(x => x.id === id);
+  const h = _habitList.find(x => x.id == id);
   if (!h) return;
   if (!confirm('删除习惯「' + h.title + '」吗？打卡记录会一起删除。')) return;
   await sb.from('habits').delete().eq('id', id);
-  _habitList = _habitList.filter(x => x.id !== id);
+  _habitList = _habitList.filter(x => x.id != id);
   renderHabitList();
   renderHabitCalendar();
   renderHabitHeatmap();
@@ -932,26 +932,26 @@ async function deleteHabit(id) {
 // ===== 习惯排序 =====
 async function moveHabitUp(id) {
   if (!sb) return;
-  var current = _habitList.find(function(h) { return h.id === id; });
+  var current = _habitList.find(function(h) { return h.id == id; });
   if (!current) return;
   // 只在同组（活跃/归档）内排序
-  var group = _habitList.filter(function(h) { return h.archived === current.archived; });
+  var group = _habitList.filter(function(h) { return h.archived == current.archived; });
   group.sort(function(a, b) {
     var soA = a.sort_order != null ? a.sort_order : 0;
     var soB = b.sort_order != null ? b.sort_order : 0;
     if (soA !== soB) return soA - soB;
     return (a.created_at || '').localeCompare(b.created_at || '');
   });
-  var idx = group.findIndex(function(h) { return h.id === id; });
+  var idx = group.findIndex(function(h) { return h.id == id; });
   if (idx <= 0) return;
   var above = group[idx - 1];
-  var tmp = current.sort_order || 0;
-  current.sort_order = above.sort_order || 0;
-  above.sort_order = tmp;
+  // 用位置序号作为新的 sort_order，避免同值交换无效
+  current.sort_order = idx - 1;
+  above.sort_order = idx;
   await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
   await sb.from('habits').update({ sort_order: above.sort_order }).eq('id', above.id);
-  var localA = _habitList.find(function(h) { return h.id === current.id; });
-  var localB = _habitList.find(function(h) { return h.id === above.id; });
+  var localA = _habitList.find(function(h) { return h.id == current.id; });
+  var localB = _habitList.find(function(h) { return h.id == above.id; });
   if (localA) localA.sort_order = current.sort_order;
   if (localB) localB.sort_order = above.sort_order;
   renderHabitList();
@@ -959,25 +959,25 @@ async function moveHabitUp(id) {
 
 async function moveHabitDown(id) {
   if (!sb) return;
-  var current = _habitList.find(function(h) { return h.id === id; });
+  var current = _habitList.find(function(h) { return h.id == id; });
   if (!current) return;
-  var group = _habitList.filter(function(h) { return h.archived === current.archived; });
+  var group = _habitList.filter(function(h) { return h.archived == current.archived; });
   group.sort(function(a, b) {
     var soA = a.sort_order != null ? a.sort_order : 0;
     var soB = b.sort_order != null ? b.sort_order : 0;
     if (soA !== soB) return soA - soB;
     return (a.created_at || '').localeCompare(b.created_at || '');
   });
-  var idx = group.findIndex(function(h) { return h.id === id; });
+  var idx = group.findIndex(function(h) { return h.id == id; });
   if (idx < 0 || idx >= group.length - 1) return;
   var below = group[idx + 1];
-  var tmp = current.sort_order || 0;
-  current.sort_order = below.sort_order || 0;
-  below.sort_order = tmp;
+  // 用位置序号作为新的 sort_order，避免同值交换无效
+  current.sort_order = idx + 1;
+  below.sort_order = idx;
   await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
   await sb.from('habits').update({ sort_order: below.sort_order }).eq('id', below.id);
-  var localA = _habitList.find(function(h) { return h.id === current.id; });
-  var localB = _habitList.find(function(h) { return h.id === below.id; });
+  var localA = _habitList.find(function(h) { return h.id == current.id; });
+  var localB = _habitList.find(function(h) { return h.id == below.id; });
   if (localA) localA.sort_order = current.sort_order;
   if (localB) localB.sort_order = below.sort_order;
   renderHabitList();
@@ -1010,7 +1010,7 @@ async function saveHabitDay(dateStr) {
   for (var i = 0; i < checkboxes.length; i++) {
     var cb = checkboxes[i];
     var hid = cb.dataset.hid;
-    var h = _habitList.find(function(x) { return x.id === hid; });
+    var h = _habitList.find(function(x) { return x.id == hid; });
     if (!h) continue;
     if (!h.checkins) h.checkins = {};
     var wasChecked = !!h.checkins[dateStr];
