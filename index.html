@@ -1146,7 +1146,7 @@ function openInspEdit(id) {
     '<label>来源链接</label><input id="insp-e-source" value="' + escHtml(sourceUrl) + '" placeholder="https://...">' +
     '<label>标签（用逗号分隔）</label><input id="insp-e-tags" value="' + escHtml(tags) + '" placeholder="例如：展览，设计，建筑">' +
     '<label>状态</label><select id="insp-e-status">' + statusOptions.map(o => '<option value="' + o.value + '"' + (status===o.value?' selected':'') + '>' + o.label + '</option>').join('') + '</select>' +
-    '<div class="btn-row" style="margin-top:14px">' + (_inspEditId ? '<button class="btn danger" onclick="deleteInsp()">🗑️ 删除</button>' : '') + '<div style="flex:1"></div><button class="btn" onclick="closeInspModal()">取消</button><button class="btn accent" onclick="saveInsp()">💾 保存</button></div></div></div>';
+    '<div class="btn-row" style="margin-top:14px">' + (_inspEditId ? '<button class="btn danger" onclick="deleteInsp()">🗑️ 删除</button>' : '') + '<span style="display:flex;gap:8px;margin-left:auto"><button class="btn" onclick="closeInspModal()">取消</button><button class="btn accent" onclick="saveInsp()">💾 保存</button></span></div></div></div>';
 
   document.getElementById('okr-modal-container').innerHTML = html;
 
@@ -3305,7 +3305,7 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .modal-box {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 24px;
+  border-radius: var(--radius); padding: 24px; text-align: left;
   width: 90%; max-width: 480px; max-height: 82vh; overflow-y: auto;
 }
 .modal-box h3 { margin-bottom: 16px; font-size: 16px; }
@@ -3316,7 +3316,7 @@ textarea { resize: vertical; min-height: 80px; }
   color: var(--text); font-family: var(--font); font-size: 13px; margin-bottom: 12px;
 }
 .modal-box textarea { min-height: 60px; resize: vertical; }
-.modal-box .btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.modal-box .btn-row { display: flex; gap: 8px; justify-content: space-between; margin-top: 14px; }
 
 @media (max-width: 768px) {
   .okr-layout { grid-template-columns: 1fr; }
