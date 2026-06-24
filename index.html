@@ -815,17 +815,22 @@ function changeHabitMonth(delta) {
 }
 
 async function toggleHabitCheck(id) {
-  if (!sb) return;
-  const h = _habitList.find(x => x.id == id);
-  if (!h) return;
+  var dbg = document.getElementById('habit-edit-mode-btn');
+  if (!sb) { if (dbg) dbg.textContent = '🐛F:!sb'; return; }
+  var h = _habitList.find(x => x.id == id);
+  if (!h) { if (dbg) dbg.textContent = '🐛F:!h'; return; }
   const today = new Date().toISOString().slice(0, 10);
   if (!h.checkins) h.checkins = {};
   if (h.checkins[today]) {
+    if (dbg) dbg.textContent = '🐛取消打卡';
     delete h.checkins[today];
   } else {
+    if (dbg) dbg.textContent = '🐛设置打卡';
     h.checkins[today] = true;
   }
-  await sb.from('habits').update({ checkins: h.checkins }).eq('id', id);
+  var result = await sb.from('habits').update({ checkins: h.checkins }).eq('id', id);
+  if (result.error) { if (dbg) dbg.textContent = '🐛DB错:' + result.error.message; return; }
+  if (dbg) dbg.textContent = '🐛DB OK';
   renderHabitList();
   renderHabitCalendar();
   renderHabitHeatmap();
