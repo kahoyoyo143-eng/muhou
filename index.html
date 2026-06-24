@@ -823,7 +823,7 @@ async function toggleHabitCheck(id) {
   var dbg = document.getElementById('habit-edit-mode-btn');
   if (!sb) { if (dbg) dbg.textContent = '🐛sb=' + (typeof sb) + '/' + String(sb) + ' supabase=' + (typeof supabase) + ' log:' + (window._initLog||'空'); return; }
   var h = _habitList.find(x => x.id == id);
-  if (!h) { if (dbg) dbg.textContent = '🐛F:!h'; return; }
+  if (!h) { if (dbg) { var ids = _habitList.map(function(x){return x.id;}).join(','); dbg.textContent = '🐛noH hid='+id+' ids=['+ids+'] len='+_habitList.length; } return; }
   const today = new Date().toISOString().slice(0, 10);
   if (!h.checkins) h.checkins = {};
   if (h.checkins[today]) {
