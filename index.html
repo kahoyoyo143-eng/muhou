@@ -635,7 +635,7 @@ function renderHabitList() {
   const archEl = document.getElementById('archived-habit-list');
   if (!archEl) return;
   if (archived.length === 0) {
-    archEl.innerHTML = '';
+    archEl.innerHTML = '<div style="font-size:10px;color:var(--text-muted);padding:4px 0">暂无归档习惯（点击 📦 按钮可归档习惯）</div>';
   } else {
     archEl.innerHTML = '<div class="archived-section"><button class="archived-toggle">📦 已归档 (' + archived.length + ') ▸</button><div class="archived-list">' + archived.map(renderItem).join('') + '</div></div>';
     archEl.onclick = function(ev) {
@@ -944,16 +944,23 @@ async function moveHabitUp(id) {
   });
   var idx = group.findIndex(function(h) { return h.id == id; });
   if (idx <= 0) return;
-  var above = group[idx - 1];
-  // 用位置序号作为新的 sort_order，避免同值交换无效
+  // 先归一化：给同组所有项分配连续的 sort_order（0,1,2,3...），避免同值交换无效
+  for (var i = 0; i < group.length; i++) {
+    group[i].sort_order = i;
+  }
+  // 交换 idx 和 idx-1
   current.sort_order = idx - 1;
-  above.sort_order = idx;
-  await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
-  await sb.from('habits').update({ sort_order: above.sort_order }).eq('id', above.id);
+  group[idx - 1].sort_order = idx;
+  // 批量更新涉及的 2 条记录到 Supabase
+  try {
+    await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
+    await sb.from('habits').update({ sort_order: group[idx - 1].sort_order }).eq('id', group[idx - 1].id);
+  } catch(e) { console.error('排序保存失败:', e); }
+  // 同步本地 _habitList
   var localA = _habitList.find(function(h) { return h.id == current.id; });
-  var localB = _habitList.find(function(h) { return h.id == above.id; });
+  var localB = _habitList.find(function(h) { return h.id == group[idx - 1].id; });
   if (localA) localA.sort_order = current.sort_order;
-  if (localB) localB.sort_order = above.sort_order;
+  if (localB) localB.sort_order = group[idx - 1].sort_order;
   renderHabitList();
 }
 
@@ -970,16 +977,23 @@ async function moveHabitDown(id) {
   });
   var idx = group.findIndex(function(h) { return h.id == id; });
   if (idx < 0 || idx >= group.length - 1) return;
-  var below = group[idx + 1];
-  // 用位置序号作为新的 sort_order，避免同值交换无效
+  // 先归一化：给同组所有项分配连续的 sort_order（0,1,2,3...），避免同值交换无效
+  for (var j = 0; j < group.length; j++) {
+    group[j].sort_order = j;
+  }
+  // 交换 idx 和 idx+1
   current.sort_order = idx + 1;
-  below.sort_order = idx;
-  await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
-  await sb.from('habits').update({ sort_order: below.sort_order }).eq('id', below.id);
+  group[idx + 1].sort_order = idx;
+  // 批量更新涉及的 2 条记录到 Supabase
+  try {
+    await sb.from('habits').update({ sort_order: current.sort_order }).eq('id', current.id);
+    await sb.from('habits').update({ sort_order: group[idx + 1].sort_order }).eq('id', group[idx + 1].id);
+  } catch(e) { console.error('排序保存失败:', e); }
+  // 同步本地 _habitList
   var localA = _habitList.find(function(h) { return h.id == current.id; });
-  var localB = _habitList.find(function(h) { return h.id == below.id; });
+  var localB = _habitList.find(function(h) { return h.id == group[idx + 1].id; });
   if (localA) localA.sort_order = current.sort_order;
-  if (localB) localB.sort_order = below.sort_order;
+  if (localB) localB.sort_order = group[idx + 1].sort_order;
   renderHabitList();
 }
 
@@ -3289,7 +3303,7 @@ textarea { resize: vertical; min-height: 80px; }
 .habit-edit:hover { color: var(--accent); }
 .habit-up, .habit-down {
   font-size: 9px; color: var(--text-muted); cursor: pointer; background: none; border: none;
-  opacity: 0; transition: opacity 0.15s; padding: 2px 1px; line-height: 1;
+  opacity: 0.35; transition: opacity 0.15s; padding: 2px 1px; line-height: 1;
 }
 .habit-item:hover .habit-up, .habit-item:hover .habit-down { opacity: 1; }
 .habit-up:hover, .habit-down:hover { color: var(--accent); }
@@ -4380,7 +4394,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● 0624-3</span></h3>
+          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● 0624-4</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
           <div id="archived-habit-list"></div>
