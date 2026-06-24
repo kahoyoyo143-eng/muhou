@@ -2710,8 +2710,8 @@ function renderSWColumn(cat, items) {
     const doneAtStr = item.done && item.done_at ? '<span class="sw-item-done-at">' + (item.done_at || '').slice(0, 10) + '</span>' : '';
     const memoIcon = item.memo ? '<span class="sw-item-memo-icon has-memo" title="' + escHtmlAttr(item.memo) + '">📝</span>' : '<span class="sw-item-memo-icon">📝</span>';
     return '<div class="sw-item' + doneCls + editModeCls + '"' + dragAttr + ' data-sid="' + item.id + '" data-cat="' + escHtmlAttr(item.category || '') + '">' +
-      emojiHtml +
       '<button class="sw-item-check' + checkedCls + '" onclick="event.stopPropagation();swToggleDone(' + item.id + ')">' + (item.done ? '✓' : '') + '</button>' +
+      emojiHtml +
       '<span class="sw-item-title">' + escHtml(item.title) + '</span>' +
       doneAtStr + memoIcon +
       '</div>';
@@ -2827,7 +2827,10 @@ function swAddCategory() {
   if (_swCategories.some(function(c) { return c.name === name; })) { alert('分类名已存在'); return; }
   var maxSo = 0;
   _swCategories.forEach(function(c) { if ((c.sort_order || 0) > maxSo) maxSo = c.sort_order || 0; });
-  sb.from('small_win_categories').insert({ year: String(_swYear), name: name, sort_order: maxSo + 1 }).then(function() { loadSWPage(); });
+  sb.from('small_win_categories').insert({ year: String(_swYear), name: name, sort_order: maxSo + 1 }).then(function(r) {
+    if (r.error) { alert('创建失败：' + r.error.message); return; }
+    loadSWPage();
+  });
 }
 
 function swEditCategory(oldName) {
