@@ -645,53 +645,54 @@ function renderHabitList() {
     if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
   };
 
-  // 拖拽排序 — 仅编辑模式下生效（普通模式下 draggable=false，无冲突）
-  var _dragId = null;
-  el.ondragstart = function(ev) {
-    var item = ev.target.closest('.habit-item');
-    if (!item) { ev.preventDefault(); return; }
-    _dragId = item.dataset.hid;
-    ev.dataTransfer.effectAllowed = 'move';
-    item.style.opacity = '0.4';
-  };
-  el.ondragend = function(ev) {
-    var items = el.querySelectorAll('.habit-item');
-    for (var i = 0; i < items.length; i++) { items[i].style.opacity = ''; }
-    _dragId = null;
-  };
-  el.ondragover = function(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; };
-  el.ondrop = async function(ev) {
-    ev.preventDefault();
-    if (!_dragId || !sb) return;
-    var target = ev.target.closest('.habit-item');
-    if (!target || target.dataset.hid === _dragId) return;
-    // 在被拖拽的习惯列表中，把拖拽项移到目标项的位置
-    var dragH = _habitList.find(function(x) { return x.id == _dragId; });
-    var targetH = _habitList.find(function(x) { return x.id == target.dataset.hid; });
-    if (!dragH || !targetH) return;
-    if (dragH.archived != targetH.archived) return; // 不跨组
-    // 从数组中移除拖拽项
-    var dragIdx = _habitList.indexOf(dragH);
-    _habitList.splice(dragIdx, 1);
-    // 找到目标项当前的位置（可能因移除而变化）
-    var targetIdx = _habitList.indexOf(targetH);
-    // 判断插入在目标前还是后
-    var rect = target.getBoundingClientRect();
-    var after = ev.clientY > rect.top + rect.height / 2;
-    var insertAt = after ? targetIdx + 1 : targetIdx;
-    _habitList.splice(insertAt, 0, dragH);
-    // 重新分配同组活跃习惯的 sort_order
-    var so = 0;
-    for (var i = 0; i < _habitList.length; i++) {
-      if (!_habitList[i].archived) { _habitList[i].sort_order = so++; }
-    }
-    // 保存到 Supabase
-    for (var j = 0; j < _habitList.length; j++) {
-      if (_habitList[j].archived) continue;
-      try { await sb.from('habits').update({ sort_order: _habitList[j].sort_order }).eq('id', _habitList[j].id); } catch(e) {}
-    }
-    renderHabitList();
-  };
+  // 拖拽排序 — 仅编辑模式下启用拖拽处理器
+  if (_habitEditMode) {
+    var _dragId = null;
+    el.ondragstart = function(ev) {
+      var item = ev.target.closest('.habit-item');
+      if (!item) { ev.preventDefault(); return; }
+      _dragId = item.dataset.hid;
+      ev.dataTransfer.effectAllowed = 'move';
+      item.style.opacity = '0.4';
+    };
+    el.ondragend = function(ev) {
+      var items = el.querySelectorAll('.habit-item');
+      for (var i = 0; i < items.length; i++) { items[i].style.opacity = ''; }
+      _dragId = null;
+    };
+    el.ondragover = function(ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; };
+    el.ondrop = async function(ev) {
+      ev.preventDefault();
+      if (!_dragId || !sb) return;
+      var target = ev.target.closest('.habit-item');
+      if (!target || target.dataset.hid === _dragId) return;
+      var dragH = _habitList.find(function(x) { return x.id == _dragId; });
+      var targetH = _habitList.find(function(x) { return x.id == target.dataset.hid; });
+      if (!dragH || !targetH) return;
+      if (dragH.archived != targetH.archived) return;
+      var dragIdx = _habitList.indexOf(dragH);
+      _habitList.splice(dragIdx, 1);
+      var targetIdx = _habitList.indexOf(targetH);
+      var rect = target.getBoundingClientRect();
+      var after = ev.clientY > rect.top + rect.height / 2;
+      var insertAt = after ? targetIdx + 1 : targetIdx;
+      _habitList.splice(insertAt, 0, dragH);
+      var so = 0;
+      for (var i = 0; i < _habitList.length; i++) {
+        if (!_habitList[i].archived) { _habitList[i].sort_order = so++; }
+      }
+      for (var j = 0; j < _habitList.length; j++) {
+        if (_habitList[j].archived) continue;
+        try { await sb.from('habits').update({ sort_order: _habitList[j].sort_order }).eq('id', _habitList[j].id); } catch(e) {}
+      }
+      renderHabitList();
+    };
+  } else {
+    el.ondragstart = null;
+    el.ondragend = null;
+    el.ondragover = null;
+    el.ondrop = null;
+  }
 
   // 归档习惯 → 独立卡片 #archived-habit-list
   const archEl = document.getElementById('archived-habit-list');
@@ -4415,7 +4416,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <button class="btn-sm" id="habit-edit-mode-btn" onclick="toggleHabitEditMode()" style="margin-left:8px;font-size:11px;padding:2px 8px">✋ 排序</button> <span style="color:red;font-size:11px;font-weight:normal">● v7</span></h3>
+          <h3>🔄 今日习惯 <button class="btn-sm" id="habit-edit-mode-btn" onclick="toggleHabitEditMode()" style="margin-left:8px;font-size:11px;padding:2px 8px">✋ 排序</button> <span style="color:red;font-size:11px;font-weight:normal">● v8</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
         </div>
