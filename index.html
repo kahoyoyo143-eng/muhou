@@ -678,32 +678,23 @@ function renderHabitList() {
     renderHabitList();
   };
 
-  // 归档习惯 → #archived-habit-list
+  // 归档习惯 → 独立卡片 #archived-habit-list
   const archEl = document.getElementById('archived-habit-list');
-  if (!archEl) return;
-  if (archived.length === 0) {
-    archEl.innerHTML = '<div style="font-size:10px;color:var(--text-muted);padding:4px 0">暂无归档习惯（点击 📦 按钮可归档习惯）</div>';
-  } else {
-    archEl.innerHTML = '<div class="archived-section"><button class="archived-toggle">📦 已归档 (' + archived.length + ') ▸</button><div class="archived-list">' + archived.map(renderItem).join('') + '</div></div>';
-    archEl.onclick = function(ev) {
-      const item = ev.target.closest('.habit-item');
-      if (item) {
+  if (archEl) {
+    if (archived.length === 0) {
+      archEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0">暂无归档习惯（点击 📦 按钮可归档习惯）</div>';
+    } else {
+      archEl.innerHTML = archived.map(renderItem).join('');
+      archEl.onclick = function(ev) {
+        const item = ev.target.closest('.habit-item');
+        if (!item) return;
         const hid = parseInt(item.dataset.hid);
         if (isNaN(hid)) return;
         if (ev.target.closest('.habit-edit')) editHabit(hid);
         if (ev.target.closest('.habit-del')) deleteHabit(hid);
         if (ev.target.closest('.habit-archive')) toggleHabitArchive(hid);
-        return;
-      }
-      const toggleBtn = ev.target.closest('.archived-toggle');
-      if (toggleBtn) {
-        const list = toggleBtn.parentElement.querySelector('.archived-list');
-        if (list) {
-          const isOpen = list.classList.toggle('show');
-          toggleBtn.innerHTML = toggleBtn.innerHTML.replace(isOpen ? '▸' : '▾', isOpen ? '▾' : '▸');
-        }
-      }
-    };
+      };
+    }
   }
 }
 
@@ -3282,17 +3273,10 @@ textarea { resize: vertical; min-height: 80px; }
 .habit-emoji { font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
 
 /* 习惯归档区 */
-.archived-section { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 8px; }
-.archived-toggle {
-  font-size: 11px; color: var(--text-muted); cursor: pointer; background: none; border: none;
-  padding: 4px 0; display: flex; align-items: center; gap: 4px;
-}
-.archived-toggle:hover { color: var(--text); }
-.archived-list { display: none; }
-.archived-list.show { display: block; }
-.archived-list .habit-item { opacity: 0.5; }
-.archived-list .habit-item:hover { opacity: 0.8; }
-.archived-list .habit-check { pointer-events: none; }
+/* 归档习惯独立卡片 */
+#archived-habit-list .habit-item { opacity: 0.5; }
+#archived-habit-list .habit-item:hover { opacity: 0.8; }
+#archived-habit-list .habit-check { pointer-events: none; }
 
 
 /* emoji 选择器 */
@@ -4366,9 +4350,12 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug2-7</span></h3>
+          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug3-1</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
+        </div>
+        <div class="okr-block" id="archived-block" style="margin-top:16px">
+          <h3>📦 已归档习惯</h3>
           <div id="archived-habit-list"></div>
         </div>
       </div>
