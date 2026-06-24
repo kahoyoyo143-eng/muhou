@@ -644,6 +644,7 @@ function renderHabitList() {
   // 拖拽排序 — 活跃习惯
   var _dragId = null;
   el.ondragstart = function(ev) {
+    if (ev.target.closest('button')) { ev.preventDefault(); return; }
     var item = ev.target.closest('.habit-item');
     if (!item) { ev.preventDefault(); return; }
     _dragId = item.dataset.hid;
