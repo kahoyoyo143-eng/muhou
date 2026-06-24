@@ -816,7 +816,7 @@ function changeHabitMonth(delta) {
 
 async function toggleHabitCheck(id) {
   var dbg = document.getElementById('habit-edit-mode-btn');
-  if (!sb) { if (dbg) dbg.textContent = '🐛sb=' + (typeof sb) + '/' + String(sb) + ' supabase=' + (typeof supabase); return; }
+  if (!sb) { if (dbg) dbg.textContent = '🐛sb=' + (typeof sb) + '/' + String(sb) + ' supabase=' + (typeof supabase) + ' log:' + (window._initLog||'空'); return; }
   var h = _habitList.find(x => x.id == id);
   if (!h) { if (dbg) dbg.textContent = '🐛F:!h'; return; }
   const today = new Date().toISOString().slice(0, 10);
@@ -4605,11 +4605,14 @@ textarea { resize: vertical; min-height: 80px; }
 const SB_URL = 'https://otbzfmfqtfcdlronivdk.supabase.co';
 const SB_KEY = 'sb_publishable_7Ik9TdtWu8fuwR9f50BUdg_UM5lJpHt';
 let sb = null;
+window._initLog = '';
 
 try {
   sb = supabase.createClient(SB_URL, SB_KEY);
+  window._initLog += 'initOK ';
   console.log('✅ Supabase 已连接');
 } catch(e) {
+  window._initLog += 'initFAIL:' + e.message + ' ';
   console.error('❌ Supabase 连接失败:', e);
 }
 
