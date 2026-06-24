@@ -635,6 +635,10 @@ function renderHabitList() {
 
   // 事件委托：活跃习惯
   el.onclick = function(ev) {
+    // DEBUG v8: 确认点击事件是否触发
+    var debugTarget = ev.target.tagName;
+    if (ev.target.className) debugTarget += '.' + String(ev.target.className).split(' ')[0];
+    document.getElementById('habit-edit-mode-btn').textContent = '🐛点:' + debugTarget;
     const item = ev.target.closest('.habit-item');
     if (!item) return;
     const hid = parseInt(item.dataset.hid);
