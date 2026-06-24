@@ -931,9 +931,10 @@ async function deleteHabit(id) {
 
 // ===== 习惯排序 =====
 async function moveHabitUp(id) {
+  alert('▲ 点击了 id=' + id + ' sb=' + !!sb + ' habits=' + _habitList.length);
   if (!sb) return;
   var current = _habitList.find(function(h) { return h.id == id; });
-  if (!current) return;
+  if (!current) { alert('找不到习惯 id=' + id); return; }
   // 只在同组（活跃/归档）内排序
   var group = _habitList.filter(function(h) { return h.archived == current.archived; });
   group.sort(function(a, b) {
@@ -4394,7 +4395,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug2-1</span></h3>
+          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● bug2-2</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
           <div id="archived-habit-list"></div>
