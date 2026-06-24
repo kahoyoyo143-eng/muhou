@@ -642,18 +642,13 @@ function renderHabitList() {
   };
 
   // 拖拽排序 — 活跃习惯
-  // 点击按钮时临时关闭 draggable，防止拖拽拦截按钮事件
+  // mousedown 的 preventDefault 阻止浏览器启动拖拽（HTML5 规范做法）
   var _dragId = null;
-  el.addEventListener('mousedown', function(ev) {
+  el.onmousedown = function(ev) {
     if (ev.target.closest('button')) {
-      var item = ev.target.closest('.habit-item');
-      if (item) item.draggable = false;
+      ev.preventDefault();
     }
-  });
-  el.addEventListener('mouseup', function() {
-    var items = el.querySelectorAll('.habit-item');
-    for (var i = 0; i < items.length; i++) { items[i].draggable = true; }
-  });
+  };
   el.ondragstart = function(ev) {
     var item = ev.target.closest('.habit-item');
     if (!item) { ev.preventDefault(); return; }
@@ -4397,7 +4392,7 @@ textarea { resize: vertical; min-height: 80px; }
           <div class="heatmap-mini" id="habit-heatmap"></div>
         </div>
         <div class="okr-block">
-          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● v5</span></h3>
+          <h3>🔄 今日习惯 <span style="color:red;font-size:11px;font-weight:normal">● v6</span></h3>
           <div id="habit-list"></div>
           <button class="btn-sm" style="margin-top:10px" onclick="openHabitAdd()">+ 添加习惯</button>
         </div>
