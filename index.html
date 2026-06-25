@@ -3222,6 +3222,20 @@ textarea { resize: vertical; min-height: 80px; }
 .note-btn:hover { background: rgba(0,0,0,0.55); }
 .note-btn.del:hover { background: var(--danger); }
 
+/* 右下角缩放把手 */
+.note-item .note-resize-handle {
+  position: absolute; bottom: 0; right: 0;
+  width: 20px; height: 20px;
+  cursor: nwse-resize;
+  z-index: 3;
+  background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.12) 50%);
+  border-radius: 0 0 3px 0;
+  transition: background 0.15s;
+}
+.note-item .note-resize-handle:hover {
+  background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
+}
+
 /* 编辑状态指示 */
 .note-item .note-drag-hint {
   position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
@@ -5242,10 +5256,22 @@ function onPointerDown(e) {
   if (e.target.closest('.note-btn')) return; // 操作按钮不触发拖拽
   e.preventDefault();
   const card = visionCards[idx];
+
+  // 检测是否在缩放把手上 → 进入缩放模式
+  if (e.target.closest('.note-resize-handle')) {
+    _dragState = {
+      idx, startX: e.clientX, startY: e.clientY,
+      origW: card.w || NOTE_SIZES.m.w, origH: card.h || NOTE_SIZES.m.h,
+      mode: 'resize', pointerId: e.pointerId, note: note
+    };
+    note.setPointerCapture(e.pointerId);
+    return;
+  }
+
   _dragState = {
     idx, startX: e.clientX, startY: e.clientY,
     origX: card.x || 0, origY: card.y || 0,
-    moved: false, pointerId: e.pointerId, note: note
+    moved: false, pointerId: e.pointerId, note: note, mode: 'move'
   };
   if (isMobile()) {
     _dragState.longPressTimer = setTimeout(() => {
@@ -5264,6 +5290,19 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
   if (!_dragState) return;
+  // 缩放模式
+  if (_dragState.mode === 'resize') {
+    const dx = e.clientX - _dragState.startX;
+    const dy = e.clientY - _dragState.startY;
+    const card = visionCards[_dragState.idx];
+    if (!card) return;
+    card.w = Math.max(100, _dragState.origW + dx);
+    card.h = Math.max(80, _dragState.origH + dy);
+    _dragState.note.style.width = card.w + 'px';
+    _dragState.note.style.minHeight = card.h + 'px';
+    return;
+  }
+  // 移动模式
   if (isMobile() && !_dragState.longPressed) {
     const dx = Math.abs(e.clientX - _dragState.startX);
     const dy = Math.abs(e.clientY - _dragState.startY);
@@ -5285,7 +5324,7 @@ function onPointerUp(e) {
   if (!_dragState) return;
   clearTimeout(_dragState.longPressTimer);
   if (_dragState.note) _dragState.note.classList.remove('dragging');
-  if (!_dragState.moved && !_dragState.longPressed) editNoteCard(_dragState.idx);
+  if (_dragState.mode === 'move' && !_dragState.moved && !_dragState.longPressed) editNoteCard(_dragState.idx);
   _dragState = null;
 }
 
@@ -5332,6 +5371,7 @@ function renderVisionBoard() {
     if (_visionEdit) {
       inner += `<div class="note-actions"><button class="note-btn del" data-del="${i}">✕</button></div>`;
       inner += '<div class="note-drag-hint">⋮⋮ 拖拽</div>';
+      inner += '<div class="note-resize-handle"></div>';
     }
     div.innerHTML = inner;
     canvas.appendChild(div);
@@ -5527,6 +5567,7 @@ function saveNoteCard() {
     const old = visionCards[_editingIndex];
     card.x = old.x || 0; card.y = old.y || 0;
     card.rotation = old.rotation || 0; card.z = old.z || 0;
+    card.w = old.w || card.w; card.h = old.h || card.h; // 保留手动缩放后的尺寸
     visionCards[_editingIndex] = card;
   } else {
     const wrap = document.getElementById('vision-canvas-wrap');
