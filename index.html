@@ -1158,20 +1158,22 @@ function renderInspGrid() {
   }
 
   el.innerHTML = list.map(i => {
-    const imgHTML = i.image_url
-      ? '<div class="insp-card-img"><img src="' + escHtml(i.image_url) + '" alt="' + escHtml(i.title) + '" loading="lazy"></div>'
-      : '<div class="insp-card-img insp-card-placeholder">' + (i.title || '?')[0] + '</div>';
-
     const descHTML = i.content
-      ? '<div class="insp-card-desc">' + escHtml(i.content.slice(0, 100)) + (i.content.length > 100 ? '...' : '') + '</div>'
+      ? '<div class="insp-card-desc">' + escHtml(i.content.slice(0, 120)) + (i.content.length > 120 ? '...' : '') + '</div>'
       : '';
 
     const tagsHTML = (i.tags || []).length > 0
       ? '<div class="insp-card-tags">' + i.tags.map(t => '<span class="insp-tag" data-tag="' + escHtml(t) + '" onclick="event.stopPropagation();filterByTag(\'' + escHtml(t) + '\')">' + escHtml(t) + '</span>').join('') + '</div>'
       : '';
 
+    // 来源链接 — 链接型灵感的核心信息，放在标题下方显眼位置
     const sourceHTML = i.source_url
-      ? '<a class="insp-card-source" href="' + escHtml(i.source_url) + '" target="_blank" onclick="event.stopPropagation()" title="' + escHtml(i.source_url) + '">🔗 来源</a>'
+      ? '<a class="insp-card-link" href="' + escHtml(i.source_url) + '" target="_blank" onclick="event.stopPropagation()" title="' + escHtml(i.source_url) + '">🔗 ' + escHtml(i.source_url.replace(/^https?:\/\//, '').replace(/\/$/, '')) + '</a>'
+      : '';
+
+    // 如果有图片，在底部显示小缩略图（可选点缀）
+    const thumbHTML = i.image_url
+      ? '<div class="insp-card-thumb"><img src="' + escHtml(i.image_url) + '" alt="" loading="lazy"></div>'
       : '';
 
     const statusLabels = { collected: '📥 刚收集', noted: '📝 已做笔记', practiced: '✅ 已实践', discarded: '🗑️ 已废弃' };
@@ -1179,14 +1181,14 @@ function renderInspGrid() {
     const dateStr = i.created_at ? new Date(i.created_at).toLocaleDateString('zh-CN') : '';
 
     return '<div class="insp-card" onclick="openInspEdit(\'' + i.id + '\')">' +
-      imgHTML +
       '<div class="insp-card-body">' +
         '<div class="insp-card-title">' + escHtml(i.title) + '</div>' +
+        sourceHTML +
         descHTML +
         tagsHTML +
+        thumbHTML +
         '<div class="insp-card-footer">' +
           '<span class="insp-status-badge insp-status-' + i.status + '">' + statusLabel + '</span>' +
-          sourceHTML +
           '<span class="insp-card-date">' + dateStr + '</span>' +
         '</div>' +
       '</div>' +
@@ -3798,32 +3800,41 @@ textarea { resize: vertical; min-height: 80px; }
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0,0,0,0.08);
 }
-.insp-card-img {
-  width: 100%; height: 160px; overflow: hidden; background: var(--surface-hover);
-  display: flex; align-items: center; justify-content: center;
-}
-.insp-card-img img { width: 100%; height: 100%; object-fit: cover; }
-.insp-card-placeholder {
-  font-size: 52px; color: var(--accent); font-weight: 700; opacity: 0.45;
-}
-.insp-card-body { padding: 12px 14px 14px; flex: 1; display: flex; flex-direction: column; }
+/* 卡片正文 — 大标题为主 */
+.insp-card-body { padding: 18px 18px 16px; flex: 1; display: flex; flex-direction: column; }
 .insp-card-title {
-  font-size: 15px; font-weight: 600; margin-bottom: 6px;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; line-height: 1.4;
+  font-size: 18px; font-weight: 700; margin-bottom: 8px;
+  line-height: 1.35; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+/* 来源链接 — 链接型灵感的核心信息 */
+.insp-card-link {
+  display: block; font-size: 13px; color: var(--accent-2); text-decoration: none;
+  margin-bottom: 8px; padding: 6px 10px; border-radius: 6px;
+  background: rgba(74,143,184,0.06); word-break: break-all;
+  transition: background 0.15s;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.insp-card-link:hover { background: rgba(74,143,184,0.14); text-decoration: none; }
 .insp-card-desc {
-  font-size: 12px; color: var(--text-muted); line-height: 1.5;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; margin-bottom: 8px;
+  font-size: 13px; color: var(--text-muted); line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; margin-bottom: 10px;
 }
 .insp-card-tags {
-  display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px;
+  display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px;
 }
 .insp-card-tags .insp-tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; cursor: pointer; }
+/* 可选图片缩略图 — 不大，作为点缀 */
+.insp-card-thumb {
+  margin-bottom: 10px; border-radius: 6px; overflow: hidden;
+  max-height: 120px;
+}
+.insp-card-thumb img { width: 100%; height: auto; max-height: 120px; object-fit: cover; display: block; }
 .insp-card-footer {
   display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted);
-  flex-wrap: wrap; margin-top: auto;
+  flex-wrap: wrap; margin-top: auto; padding-top: 4px;
 }
 .insp-status-badge {
   padding: 2px 8px; border-radius: 10px; font-size: 11px; white-space: nowrap;
@@ -3832,10 +3843,6 @@ textarea { resize: vertical; min-height: 80px; }
 .insp-status-noted { background: rgba(231,111,81,0.12); color: var(--accent); }
 .insp-status-practiced { background: rgba(64,184,80,0.12); color: var(--mood-5); }
 .insp-status-discarded { background: rgba(136,136,136,0.15); color: var(--text-muted); }
-.insp-card-source {
-  color: var(--accent-2); text-decoration: none; font-size: 11px;
-}
-.insp-card-source:hover { text-decoration: underline; }
 .insp-card-date { margin-left: auto; }
 
 /* 快速捕捉（在捕捉·回顾左栏内） */
