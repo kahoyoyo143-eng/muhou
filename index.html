@@ -368,6 +368,9 @@ async function syncTaskToDiary(taskTitle) {
     const autoEntries = data.auto_entries || [];
     autoEntries.push(entry);
     await sb.from('diaries').update({ auto_entries: autoEntries }).eq('date', today);
+  } else {
+    // 今天还没有日记，自动创建一条
+    await sb.from('diaries').upsert({ date: today, auto_entries: [entry], content: '', mood: 0 }, { onConflict: 'date' });
   }
 }
 
@@ -871,6 +874,27 @@ async function syncHabitToDiary(habitTitle) {
       autoEntries.push(entry);
       await sb.from('diaries').update({ auto_entries: autoEntries }).eq('date', today);
     }
+  } else {
+    // 今天还没有日记，自动创建一条
+    await sb.from('diaries').upsert({ date: today, auto_entries: [entry], content: '', mood: 0 }, { onConflict: 'date' });
+  }
+}
+
+async function syncInspirationToDiary(inspTitle) {
+  if (!sb) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await sb.from('diaries').select('*').eq('date', today).single();
+  const entry = { type: 'inspiration', label: '💡 捕捉灵感：' + inspTitle, time: new Date().toISOString() };
+  if (data) {
+    const autoEntries = data.auto_entries || [];
+    // 避免重复
+    if (!autoEntries.find(e => e.label === entry.label)) {
+      autoEntries.push(entry);
+      await sb.from('diaries').update({ auto_entries: autoEntries }).eq('date', today);
+    }
+  } else {
+    // 今天还没有日记，自动创建一条
+    await sb.from('diaries').upsert({ date: today, auto_entries: [entry], content: '', mood: 0 }, { onConflict: 'date' });
   }
 }
 
@@ -1307,6 +1331,8 @@ async function saveInsp() {
     const { data, error } = await sb.from('inspirations').insert(payload).select();
     if (error) { alert('创建失败: ' + error.message); return; }
     if (data && data[0]) _inspList.unshift(data[0]);
+    // 同步到日记自动记录
+    await syncInspirationToDiary(title);
   }
 
   closeInspModal();
@@ -1367,6 +1393,8 @@ async function submitQuickCapture() {
     }
 
     if (data) {
+      // 同步到日记自动记录
+      await syncInspirationToDiary(title);
       input.value = '';
       renderQuickRecent();
       input.focus();
