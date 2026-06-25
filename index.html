@@ -3194,7 +3194,8 @@ textarea { resize: vertical; min-height: 80px; }
 /* 内容 */
 .note-item .note-text { white-space: pre-wrap; position: relative; z-index: 1; }
 .note-item .note-img {
-  width: 100%; border-radius: 2px; margin-bottom: 6px;
+  width: 100%; height: 100%; object-fit: cover;
+  border-radius: 2px; margin-bottom: 0;
   display: block; position: relative; z-index: 1;
 }
 .note-item .note-caption {
@@ -5299,7 +5300,9 @@ function onPointerMove(e) {
     card.w = Math.max(100, _dragState.origW + dx);
     card.h = Math.max(80, _dragState.origH + dy);
     _dragState.note.style.width = card.w + 'px';
+    _dragState.note.style.height = card.h + 'px';
     _dragState.note.style.minHeight = card.h + 'px';
+    _dragState.note.style.overflow = 'hidden';
     return;
   }
   // 移动模式
@@ -5359,7 +5362,8 @@ function renderVisionBoard() {
     const h = card.h || sz.h;
     div.className = 'note-item note-' + (card.color || 'y') + (_visionEdit ? ' editing-note' : '');
     div.dataset.index = i;
-    div.style.cssText = `left:${card.x||0}px;top:${card.y||0}px;width:${w}px;min-height:${h}px;transform:rotate(${card.rotation||0}deg);z-index:${card.z||0}`;
+    const isCustomSize = card.w && card.h && (card.w !== sz.w || card.h !== sz.h);
+    div.style.cssText = `left:${card.x||0}px;top:${card.y||0}px;width:${w}px;` + (isCustomSize ? `height:${h}px;overflow:hidden;` : `min-height:${h}px;`) + `transform:rotate(${card.rotation||0}deg);z-index:${card.z||0}`;
 
     let inner = '<div class="note-tape"></div>';
     if (card.type === 'image' && card.src) {
