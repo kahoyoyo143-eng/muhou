@@ -4726,8 +4726,8 @@ textarea { resize: vertical; min-height: 80px; }
     <div class="page-title">🌟 愿景版</div>
     <div class="vision-header-row">
       <div class="vision-tabs">
-        <div class="vision-tab active" data-tab="n-year" onclick="switchVisionTab('n-year')">🔭 N 年愿景</div>
-        <div class="vision-tab" data-tab="1-year" onclick="switchVisionTab('1-year')">🎯 1 年愿景</div>
+        <div class="vision-tab active" data-tab="1-year" onclick="switchVisionTab('1-year')">🎯 1 年愿景</div>
+        <div class="vision-tab" data-tab="n-year" onclick="switchVisionTab('n-year')">🔭 N 年愿景</div>
       </div>
       <div class="vision-toolbar-inline" id="vision-toolbar-top"></div>
     </div>
@@ -5138,7 +5138,7 @@ async function loadDashboard() {
 }
 
 // ---------- 愿景版·自由拼贴画布 ----------
-let currentVisionTab = 'n-year';
+let currentVisionTab = '1-year';
 let currentVisionId = null;
 let visionCards = [];       // [{ type, text?, src?, caption?, color, size, x, y, w, h, rotation, z }]
 let _visionEdit = false;
