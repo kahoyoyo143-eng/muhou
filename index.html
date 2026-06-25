@@ -1555,12 +1555,8 @@ function renderDiaryView(dateStr, content, photos, autoEntries, isToday) {
   const moodEmojis = ['', '😫', '😟', '😐', '😊', '🤩'];
   const moodDisplay = _diaryMood ? '<span class="diary-mood-display">' + moodEmojis[_diaryMood] + '</span>' : '';
 
-  // 自动记录
-  let autoHTML = '';
-  if (autoEntries.length > 0) {
-    autoHTML = '<div class="diary-auto"><div class="diary-auto-title">⏰ 自动记录（' + autoEntries.length + ' 条）</div>' +
-      autoEntries.map(function(e) { return '<div class="diary-auto-item"><span class="diary-auto-time">' + (e.time ? new Date(e.time).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'}) : '--:--') + '</span><span>' + escHtml(e.label) + '</span></div>'; }).join('') + '</div>';
-  }
+  // 自动记录 → 渲染到左边日历下方
+  renderDiaryAutoEntries(autoEntries, isToday);
 
   // ===== 有内容 → 阅读模式 + 底部编辑按钮 =====
   if (content || photos.length > 0) {
@@ -1572,13 +1568,8 @@ function renderDiaryView(dateStr, content, photos, autoEntries, isToday) {
       photosHTML = '<div class="diary-photos">' + photos.map(function(p) { return '<div class="diary-photo"><img src="' + escHtml(p) + '" alt="日记照片" loading="lazy" onclick="window.open(this.src)"></div>'; }).join('') + '</div>';
     }
 
-    if (!autoHTML && isToday) {
-      autoHTML = '<div class="diary-auto diary-auto-empty"><div class="diary-auto-title">⏰ 自动记录</div><div class="card-empty" style="font-size:12px;padding:4px 0">今天还没有自动记录。<br>去「OKR+习惯」完成任务打卡后会自动出现在这里。</div></div>';
-    }
-
     el.innerHTML =
       '<div class="diary-date-display">' + dateDisplay + moodDisplay + '</div>' +
-      autoHTML +
       photosHTML +
       contentHTML +
       '<div class="diary-actions"><button class="btn accent" onclick="enterDiaryEditMode()">✏️ 编辑</button></div>';
@@ -1586,21 +1577,39 @@ function renderDiaryView(dateStr, content, photos, autoEntries, isToday) {
   }
 
   // ===== 无内容 → 右上角新增按钮 + 空状态 =====
-  if (!autoHTML && isToday) {
-    autoHTML = '<div class="diary-auto diary-auto-empty"><div class="diary-auto-title">⏰ 自动记录</div><div class="card-empty" style="font-size:12px;padding:4px 0">今天还没有自动记录。<br>去「OKR+习惯」完成任务打卡后会自动出现在这里。</div></div>';
-  }
-
   el.innerHTML =
     '<div class="diary-date-display diary-date-new">' +
       '<span>' + dateDisplay + moodDisplay + '</span>' +
       '<button class="btn accent" onclick="enterDiaryEditMode()">✏️ 新增</button>' +
     '</div>' +
-    autoHTML +
     '<div class="diary-empty-state">' +
       '<div class="diary-empty-icon">📝</div>' +
       '<div>这天还没有写日记</div>' +
       '<div class="diary-empty-hint">点右上角「✏️ 新增」开始记录</div>' +
     '</div>';
+}
+
+function renderDiaryAutoEntries(autoEntries, isToday) {
+  var container = document.getElementById('diary-auto-entries');
+  if (!container) return;
+
+  if (autoEntries.length > 0) {
+    container.className = 'diary-auto-left';
+    container.innerHTML =
+      '<div class="diary-auto-title">⏰ 自动记录（' + autoEntries.length + ' 条）</div>' +
+      autoEntries.map(function(e) {
+        return '<div class="diary-auto-item"><span class="diary-auto-time">' +
+          (e.time ? new Date(e.time).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'}) : '--:--') +
+          '</span><span>' + escHtml(e.label) + '</span></div>';
+      }).join('');
+  } else if (isToday) {
+    container.className = 'diary-auto-left diary-auto-empty';
+    container.innerHTML =
+      '<div class="diary-auto-title">⏰ 自动记录</div>' +
+      '<div style="font-size:11px;color:var(--text-muted);padding:4px 0;line-height:1.6">今天还没有自动记录。<br>去「OKR+习惯」完成任务打卡后会自动出现在这里。</div>';
+  } else {
+    container.innerHTML = '';
+  }
 }
 
 // ===== 编辑模式 =====
@@ -3881,7 +3890,7 @@ textarea { resize: vertical; min-height: 80px; }
    ============================================ */
 .diary-layout {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 4fr 6fr;
   gap: 24px;
   align-items: start;
 }
@@ -3895,6 +3904,25 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .diary-right {
   min-height: 500px;
+}
+
+/* 自动记录（在日历下方） */
+.diary-auto-left {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.diary-auto-left .diary-auto-title {
+  font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px;
+}
+.diary-auto-left .diary-auto-item {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 12px; color: var(--text); padding: 4px 0; line-height: 1.5;
+}
+.diary-auto-left .diary-auto-item .diary-auto-time {
+  font-size: 10px; color: var(--text-muted); white-space: nowrap; min-width: 42px;
+}
+.diary-auto-left .diary-auto-empty {
+  font-size: 11px; color: var(--text-muted); padding: 8px 0; line-height: 1.6;
 }
 
 /* 月历 */
@@ -4902,6 +4930,7 @@ textarea { resize: vertical; min-height: 80px; }
           <button class="diary-today-btn" onclick="goDiaryToday()" title="回到今天">📅 今天</button>
         </div>
         <div class="diary-calendar" id="diary-calendar"></div>
+        <div id="diary-auto-entries"></div>
       </div>
       <div class="diary-right" id="diary-editor">
         <div class="card-empty" style="padding:40px 0;text-align:center">点击左侧日期开始写日记</div>
