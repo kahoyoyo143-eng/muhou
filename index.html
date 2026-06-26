@@ -71,6 +71,58 @@ async function loadOKRData() {
   renderOKRList();
 }
 
+// 渲染单个 OKR 目标卡片（提取为独立函数，供活跃区和归档区复用）
+function renderOneOKRObjective(o) {
+  const krs = o.key_results || [];
+  const krHTML = krs.length === 0 ? '' : '<div class="okr-kr-list">' + krs.map((kr, ki) => {
+    const tasks = kr.tasks || [];
+    // 统计任务+子任务完成数
+    let krDoneCount = 0, krTotalCount = 0;
+    tasks.forEach(t => {
+      krTotalCount++;
+      if (t.done) krDoneCount++;
+      (t.subtasks || []).forEach(st => {
+        krTotalCount++;
+        if (st.done) krDoneCount++;
+      });
+    });
+    const pct = krTotalCount > 0 ? Math.round(krDoneCount / krTotalCount * 100) : 0;
+    const taskHTML = '<div class="okr-tasks">' + tasks.map((t, ti) => {
+      const doneClass = t.done ? ' done' : '';
+      const subtasks = t.subtasks || [];
+      const subHTML = subtasks.length === 0 ? '' : '<div class="okr-subtasks">' + subtasks.map((st, si) => {
+        const sdClass = st.done ? ' done' : '';
+        return '<div class="okr-subtask' + sdClass + '"><input type="checkbox" ' + (st.done ? 'checked' : '') + ' data-act="toggle-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" data-si="' + si + '"><span>' + escHtml(st.title) + '</span><button data-act="delete-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" data-si="' + si + '" title="删除子任务" class="okr-del-btn">✕</button></div>';
+      }).join('') + '</div>';
+      return '<div class="okr-task' + doneClass + '"><input type="checkbox" ' + (t.done ? 'checked' : '') + ' data-act="toggle-task" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '"><span>' + escHtml(t.title) + '</span><div class="okr-task-actions"><button data-act="add-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" title="添加子任务">+子</button><button data-act="delete-task" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" title="删除任务" class="okr-del-btn">✕</button></div></div>' + subHTML;
+    }).join('') + '</div>';
+    const krDeadlineStr = kr.deadline ? '<span class="okr-kr-deadline">⏰ ' + escHtml(kr.deadline) + '</span>' : '';
+    return '<div class="okr-kr"><div class="okr-kr-title"><span class="okr-kr-label">' + escHtml(kr.title) + '</span>' + krDeadlineStr + '<div class="okr-progress-bar"><div class="okr-progress-fill" style="width:' + pct + '%"></div></div><span class="okr-progress-pct">' + pct + '%</span><button data-act="edit-kr" data-oid="' + o.id + '" data-ki="' + ki + '" title="编辑KR" class="okr-edit-btn">✏️</button><button data-act="delete-kr" data-oid="' + o.id + '" data-ki="' + ki + '" title="删除KR" class="okr-del-btn">✕</button></div>' + taskHTML + '<button class="btn-xs" style="margin-top:4px" data-act="add-task" data-oid="' + o.id + '" data-ki="' + ki + '">+ 任务</button></div>';
+  }).join('') + '</div>';
+
+  const deadlineStr = o.deadline ? '⏰ ' + o.deadline : '';
+  const memoStr = o.memo ? '<div class="okr-o-memo">📝 ' + escHtml(o.memo) + '</div>' : '';
+  const archiveTitle = o.archived ? '取消归档' : '归档';
+
+  return '<div class="okr-objective" id="okr-obj-' + o.id + '"><div class="okr-o-header"><div class="okr-o-title" data-act="toggle-collapse" data-oid="' + o.id + '">🎯 ' + escHtml(o.title) + '</div><div class="okr-o-actions"><button data-act="edit-okr" data-oid="' + o.id + '" title="编辑">✏️</button><button data-act="archive-okr" data-oid="' + o.id + '" title="' + archiveTitle + '">📦</button><button data-act="delete-okr" data-oid="' + o.id + '" title="删除" style="color:var(--danger)">✕</button></div></div><div class="okr-o-meta">' + (deadlineStr ? '<span>' + deadlineStr + '</span>' : '') + '<span>📋 ' + krs.length + ' 个KR</span><span>📂 ' + (o.period_q || '') + (o.period_m ? ' / ' + o.period_m : '') + '</span></div>' + memoStr + krHTML + '<button class="btn-xs" style="margin-top:8px" data-act="add-kr" data-oid="' + o.id + '">+ 添加 KR</button></div>';
+}
+
+// 计算目标卡片的"内容权重"（用于瀑布流分配）
+function calcOKRWeight(o) {
+  var w = 10; // 基础高度
+  var krs = o.key_results || [];
+  w += krs.length * 30;
+  krs.forEach(function(kr) {
+    var tasks = kr.tasks || [];
+    tasks.forEach(function(t) {
+      w += 5; // 每个任务
+      w += (t.subtasks || []).length * 5; // 每个子任务
+    });
+  });
+  if (o.memo) w += 10;
+  return w;
+}
+
 function renderOKRList() {
   const el = document.getElementById('okr-list');
   if (!el) return;
@@ -80,47 +132,31 @@ function renderOKRList() {
     list = list.filter(o => o.period_m === _okrPeriodM || o.period_q === _okrPeriodQ);
   }
 
-  if (list.length === 0) {
-    el.innerHTML = '<div class="card-empty" style="padding:20px 0">这个周期还没有目标<br>点下方「新建目标」开始</div>';
-    return;
+  // 分离活跃和归档
+  var active = list.filter(function(o) { return !o.archived; });
+  var archived = list.filter(function(o) { return o.archived; });
+
+  // === 活跃目标：瀑布流分配 ===
+  if (active.length === 0) {
+    el.innerHTML = '<div class="card-empty" style="padding:20px 0">这个周期还没有目标<br>点击右上角「+ 新建目标」开始</div>';
+  } else {
+    // 计算每个目标的权重，分配到左右两栏
+    var leftWeight = 0, rightWeight = 0;
+    var leftCards = [], rightCards = [];
+    active.forEach(function(o) {
+      var w = calcOKRWeight(o);
+      if (leftWeight <= rightWeight) {
+        leftCards.push(renderOneOKRObjective(o));
+        leftWeight += w;
+      } else {
+        rightCards.push(renderOneOKRObjective(o));
+        rightWeight += w;
+      }
+    });
+    el.innerHTML = '<div class="okr-col" id="okr-col-left">' + leftCards.join('') + '</div><div class="okr-col" id="okr-col-right">' + rightCards.join('') + '</div>';
   }
 
-  el.innerHTML = list.map(o => {
-    const krs = o.key_results || [];
-    const krHTML = krs.length === 0 ? '' : '<div class="okr-kr-list">' + krs.map((kr, ki) => {
-      const tasks = kr.tasks || [];
-      // 统计任务+子任务完成数
-      let krDoneCount = 0, krTotalCount = 0;
-      tasks.forEach(t => {
-        krTotalCount++;
-        if (t.done) krDoneCount++;
-        (t.subtasks || []).forEach(st => {
-          krTotalCount++;
-          if (st.done) krDoneCount++;
-        });
-      });
-      const doneCount = krDoneCount;
-      const pct = krTotalCount > 0 ? Math.round(krDoneCount / krTotalCount * 100) : 0;
-      const taskHTML = '<div class="okr-tasks">' + tasks.map((t, ti) => {
-        const doneClass = t.done ? ' done' : '';
-        const subtasks = t.subtasks || [];
-        const subHTML = subtasks.length === 0 ? '' : '<div class="okr-subtasks">' + subtasks.map((st, si) => {
-          const sdClass = st.done ? ' done' : '';
-          return '<div class="okr-subtask' + sdClass + '"><input type="checkbox" ' + (st.done ? 'checked' : '') + ' data-act="toggle-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" data-si="' + si + '"><span>' + escHtml(st.title) + '</span><button data-act="delete-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" data-si="' + si + '" title="删除子任务" class="okr-del-btn">✕</button></div>';
-        }).join('') + '</div>';
-        return '<div class="okr-task' + doneClass + '"><input type="checkbox" ' + (t.done ? 'checked' : '') + ' data-act="toggle-task" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '"><span>' + escHtml(t.title) + '</span><div class="okr-task-actions"><button data-act="add-subtask" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" title="添加子任务">+子</button><button data-act="delete-task" data-oid="' + o.id + '" data-ki="' + ki + '" data-ti="' + ti + '" title="删除任务" class="okr-del-btn">✕</button></div></div>' + subHTML;
-      }).join('') + '</div>';
-      const krDeadlineStr = kr.deadline ? '<span class="okr-kr-deadline">⏰ ' + escHtml(kr.deadline) + '</span>' : '';
-      return '<div class="okr-kr"><div class="okr-kr-title"><span class="okr-kr-label">' + escHtml(kr.title) + '</span>' + krDeadlineStr + '<div class="okr-progress-bar"><div class="okr-progress-fill" style="width:' + pct + '%"></div></div><span class="okr-progress-pct">' + pct + '%</span><button data-act="edit-kr" data-oid="' + o.id + '" data-ki="' + ki + '" title="编辑KR" class="okr-edit-btn">✏️</button><button data-act="delete-kr" data-oid="' + o.id + '" data-ki="' + ki + '" title="删除KR" class="okr-del-btn">✕</button></div>' + taskHTML + '<button class="btn-xs" style="margin-top:4px" data-act="add-task" data-oid="' + o.id + '" data-ki="' + ki + '">+ 任务</button></div>';
-    }).join('') + '</div>';
-
-    const deadlineStr = o.deadline ? '⏰ ' + o.deadline : '';
-    const memoStr = o.memo ? '<div class="okr-o-memo">📝 ' + escHtml(o.memo) + '</div>' : '';
-
-    return '<div class="okr-objective" id="okr-obj-' + o.id + '"><div class="okr-o-header"><div class="okr-o-title" data-act="toggle-collapse" data-oid="' + o.id + '">🎯 ' + escHtml(o.title) + '</div><div class="okr-o-actions"><button data-act="edit-okr" data-oid="' + o.id + '" title="编辑">✏️</button><button data-act="delete-okr" data-oid="' + o.id + '" title="删除" style="color:var(--danger)">✕</button></div></div><div class="okr-o-meta">' + (deadlineStr ? '<span>' + deadlineStr + '</span>' : '') + '<span>📋 ' + krs.length + ' 个KR</span><span>📂 ' + (o.period_q || '') + (o.period_m ? ' / ' + o.period_m : '') + '</span></div>' + memoStr + krHTML + '<button class="btn-xs" style="margin-top:8px" data-act="add-kr" data-oid="' + o.id + '">+ 添加 KR</button></div>';
-  }).join('');
-
-  // 事件委托：处理所有 OKR 列表内的点击
+  // 事件委托：处理所有 OKR 列表内的点击（活跃区 + 归档区都冒泡到这里）
   el.onclick = function(ev) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -128,6 +164,7 @@ function renderOKRList() {
     var oid = btn.dataset.oid;
     if (act === 'edit-okr') openOKREdit(oid);
     if (act === 'delete-okr') deleteOKR(oid);
+    if (act === 'archive-okr') toggleOKRArchive(oid);
     if (act === 'add-kr') openKRAdd(oid);
     if (act === 'edit-kr') openKREdit(oid, parseInt(btn.dataset.ki));
     if (act === 'add-task') addOKRTask(oid, parseInt(btn.dataset.ki));
@@ -138,7 +175,7 @@ function renderOKRList() {
     if (act === 'toggle-collapse') toggleOKRCollapse(oid);
   };
 
-  // 事件委托：处理 checkbox 勾选
+  // 事件委托：处理 checkbox 勾选（只绑定一次）
   if (!el._hasChangeListener) {
     el._hasChangeListener = true;
     el.addEventListener('change', function(ev) {
@@ -150,6 +187,40 @@ function renderOKRList() {
       if (act === 'toggle-subtask') toggleOKRSubtask(oid, parseInt(cb.dataset.ki), parseInt(cb.dataset.ti), parseInt(cb.dataset.si), cb.checked);
     });
   }
+
+  // === 归档目标 ===
+  var archEl = document.getElementById('archived-okr-list');
+  if (archEl) {
+    if (archived.length === 0) {
+      archEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0">暂无归档目标（点击 📦 按钮可归档已完成的目标）</div>';
+    } else {
+      archEl.innerHTML = archived.map(function(o) { return renderOneOKRObjective(o); }).join('');
+      archEl.onclick = function(ev) {
+        const btn = ev.target.closest('[data-act]');
+        if (!btn) return;
+        var act = btn.dataset.act;
+        var oid = btn.dataset.oid;
+        if (act === 'edit-okr') openOKREdit(oid);
+        if (act === 'archive-okr') toggleOKRArchive(oid);
+        if (act === 'delete-okr') deleteOKR(oid);
+        if (act === 'toggle-collapse') toggleOKRCollapse(oid);
+      };
+      // 归档区的 checkbox 禁用变化监听
+      archEl.addEventListener('change', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+    }
+  }
+}
+
+// 归档/取消归档
+async function toggleOKRArchive(id) {
+  var obj = _okrList.find(function(o) { return o.id === id; });
+  if (!obj) return;
+  obj.archived = !obj.archived;
+  await sb.from('okrs').update({ archived: obj.archived }).eq('id', id);
+  renderOKRList();
 }
 
 function toggleOKRCollapse(id) {
@@ -3404,8 +3475,19 @@ textarea { resize: vertical; min-height: 80px; }
   border-radius: var(--radius); padding: 14px; margin-bottom: 0;
 }
 #okr-list {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;
+  display: flex; gap: 12px; align-items: flex-start;
 }
+.okr-col {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;
+}
+/* 归档 OKR 区 */
+#archived-okr-list .okr-objective { opacity: 0.5; }
+#archived-okr-list .okr-objective:hover { opacity: 0.8; }
+#archived-okr-list input[type="checkbox"] { pointer-events: none; }
+#archived-okr-list .okr-o-actions button[data-act="delete-okr"],
+#archived-okr-list .okr-kr-list button[data-act="delete-kr"],
+#archived-okr-list .okr-kr-list button[data-act="delete-task"],
+#archived-okr-list .okr-kr-list button[data-act="delete-subtask"] { display: none; }
 .okr-o-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .okr-o-title { font-size: 15px; font-weight: 600; flex: 1; cursor: pointer; }
 .okr-o-actions { display: flex; gap: 4px; flex-shrink: 0; }
@@ -3737,7 +3819,7 @@ textarea { resize: vertical; min-height: 80px; }
   .okr-layout { grid-template-columns: 1fr; }
   .okr-progress-bar { flex: 0 0 60px; }
   .today-memo-row { grid-template-columns: 1fr; }
-  #okr-list { grid-template-columns: 1fr; }
+  #okr-list { flex-direction: column; }
 }
 
 /* ============================================
@@ -4862,9 +4944,13 @@ textarea { resize: vertical; min-height: 80px; }
           <span style="color:var(--text-muted)">周期：</span>
           <select id="okr-period-q" onchange="onOKRPeriodChange()"></select>
           <select id="okr-period-m" onchange="onOKRPeriodChange()"></select>
+          <button class="btn-sm" style="margin-left:auto" onclick="openOKREdit()">+ 新建目标</button>
         </div>
         <div id="okr-list"></div>
-        <button class="btn-sm" style="align-self:flex-start" onclick="openOKREdit()">+ 新建目标</button>
+        <div class="okr-block" id="archived-okr-block" style="margin-top:16px">
+          <h3>📦 已归档目标</h3>
+          <div id="archived-okr-list"></div>
+        </div>
       </div>
       <!-- 右栏：习惯 -->
       <div class="okr-right">
