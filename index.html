@@ -2879,6 +2879,110 @@ function toggleSWEditMode() {
   renderSWKanban();
   var btn = document.getElementById('sw-edit-mode-btn');
   if (btn) btn.textContent = _swEditMode ? '✅ 完成排序' : '✋ 排序';
+
+  var kanban = document.getElementById('sw-kanban');
+  if (!kanban) return;
+
+  if (_swEditMode) {
+    var _swDragId = null;
+    var _swDragEl = null;
+
+    kanban.ondragstart = function(ev) {
+      var item = ev.target.closest('.sw-item');
+      if (!item) { ev.preventDefault(); return; }
+      _swDragId = parseInt(item.dataset.sid);
+      _swDragEl = item;
+      ev.dataTransfer.effectAllowed = 'move';
+      item.classList.add('dragging');
+    };
+
+    kanban.ondragend = function(ev) {
+      if (_swDragEl) _swDragEl.classList.remove('dragging');
+      _swDragEl = null;
+      _swDragId = null;
+      kanban.querySelectorAll('.sw-col').forEach(function(c) { c.classList.remove('drag-over'); });
+    };
+
+    kanban.ondragover = function(ev) {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      var col = ev.target.closest('.sw-col');
+      kanban.querySelectorAll('.sw-col').forEach(function(c) { c.classList.remove('drag-over'); });
+      if (col) col.classList.add('drag-over');
+    };
+
+    kanban.ondrop = async function(ev) {
+      ev.preventDefault();
+      kanban.querySelectorAll('.sw-col').forEach(function(c) { c.classList.remove('drag-over'); });
+      if (!_swDragId || !sb) return;
+
+      var targetCol = ev.target.closest('.sw-col');
+      if (!targetCol) return;
+      var newCat = targetCol.dataset.cat;
+
+      var dragItem = _swItems.find(function(x) { return x.id == _swDragId; });
+      if (!dragItem) return;
+
+      var oldCat = dragItem.category;
+      var targetEl = ev.target.closest('.sw-item');
+
+      // Remove from old position
+      var dragIdx = _swItems.indexOf(dragItem);
+      _swItems.splice(dragIdx, 1);
+
+      // Update category
+      dragItem.category = newCat;
+
+      // Determine where to insert
+      if (targetEl) {
+        var tid = parseInt(targetEl.dataset.sid);
+        var tgt = _swItems.find(function(x) { return x.id == tid; });
+        if (tgt) {
+          var tgtIdx = _swItems.indexOf(tgt);
+          var rect = targetEl.getBoundingClientRect();
+          var after = ev.clientY > rect.top + rect.height / 2;
+          _swItems.splice(after ? tgtIdx + 1 : tgtIdx, 0, dragItem);
+        } else {
+          _swItems.push(dragItem);
+        }
+      } else {
+        // Dropped on empty column — append to end of category
+        var lastIdx = -1;
+        for (var i = _swItems.length - 1; i >= 0; i--) {
+          if (_swItems[i].category === newCat) { lastIdx = i; break; }
+        }
+        _swItems.splice(lastIdx >= 0 ? lastIdx + 1 : 0, 0, dragItem);
+      }
+
+      // Reassign sort_order within each affected category
+      var affected = oldCat === newCat ? [newCat] : [oldCat, newCat];
+      affected.forEach(function(cat) {
+        var so = 0;
+        for (var i = 0; i < _swItems.length; i++) {
+          if (_swItems[i].category === cat) { _swItems[i].sort_order = so++; }
+        }
+      });
+
+      // Persist: update sort_order + category for all affected items
+      for (var j = 0; j < _swItems.length; j++) {
+        var it = _swItems[j];
+        if (affected.indexOf(it.category) === -1 && it.id !== dragItem.id) continue;
+        try {
+          await sb.from('small_wins').update({ sort_order: it.sort_order, category: it.category }).eq('id', it.id);
+        } catch(e) {}
+      }
+
+      // Clean up drag state before re-render
+      _swDragEl = null;
+      _swDragId = null;
+      renderSWKanban();
+    };
+  } else {
+    kanban.ondragstart = null;
+    kanban.ondragend = null;
+    kanban.ondragover = null;
+    kanban.ondrop = null;
+  }
 }
 
 async function swToggleDone(id) {
