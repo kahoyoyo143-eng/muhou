@@ -2859,7 +2859,7 @@ function renderSWColumn(cat, items) {
   var addBtn = _swEditMode ? '' : '<button class="sw-add-btn" onclick="swAddItem(\'' + escHtmlAttr(cat.name) + '\')">+ 添加小事</button>';
   return '<div class="sw-col' + editCls + '" data-cat="' + escHtmlAttr(cat.name) + '">' +
     '<div class="sw-col-header">' +
-    '<span class="sw-col-title">' + escHtml(cat.name) + '</span>' + countStr + catActions +
+    '<span class="sw-col-title" onclick="event.stopPropagation();swStartEditCategory(\'' + escHtmlAttr(cat.name) + '\')" title="点击编辑分类名">' + escHtml(cat.name) + '</span>' + countStr + catActions +
     '</div>' +
     itemsHtml +
     addBtn +
@@ -2893,7 +2893,7 @@ async function swToggleDone(id) {
 function swAddItem(catName) {
   window._swEditingId = null;
   window._swEditingCat = catName;
-  swOpenItemModal('', '', '', catName);
+  swOpenItemModal('', '', '', catName, '');
 }
 
 function swEditItem(id) {
@@ -2901,10 +2901,10 @@ function swEditItem(id) {
   if (!item) return;
   window._swEditingId = id;
   window._swEditingCat = item.category;
-  swOpenItemModal(item.title, item.emoji || '', item.memo || '', item.category);
+  swOpenItemModal(item.title, item.emoji || '', item.memo || '', item.category, item.done_at ? item.done_at.slice(0, 10) : '');
 }
 
-function swOpenItemModal(title, emoji, memo, category) {
+function swOpenItemModal(title, emoji, memo, category, doneAt) {
   var EMOJIS = ['🏔️','✈️','🏖️','🏕️','🚗','🚲','🏃','🏋️','🧘','🏊','🚴','⛷️','🏂','🎿','⛰️','🌋','🏝️','🌍','🗺️','📚','📖','✍️','🎨','🎵','🎸','🎹','🎬','📷','🎥','💻','📱','🎮','🧩','🎲','♟️','🧠','💡','🔬','🧪','🌱','🍳','🍰','🍷','☕','🍵','🐶','🐱','🌸','🌿','💰','💎','🏆','⭐','🌟','🎯','💪','🤝','❤️','🔥','✨','🎉','🎊','💭','📝','✅','☑️','⏰','📅','🔔','🎁','🧳','🗿','🏛️','🎪','🎭','🖼️','📦','🔧','🛠️','💊','🙏','🕯️','☀️','🌙'];
   var emojiGrid = '<div class="emoji-picker" style="max-height:200px;overflow-y:auto">' + EMOJIS.map(function(e) { return '<button class="emoji-opt' + (emoji === e ? ' selected' : '') + '" onclick="swPickEmoji(this,\'' + e + '\')">' + e + '</button>'; }).join('') + '</div>';
   var catOptions = _swCategories.map(function(c) {
@@ -2917,6 +2917,7 @@ function swOpenItemModal(title, emoji, memo, category) {
     '<label>标题</label><input id="sw-e-title" value="' + escHtmlAttr(title) + '" placeholder="例如：爬黄山">' +
     '<label>分类</label><select id="sw-e-cat">' + catOptions + '</select>' +
     '<label>备忘录</label><textarea id="sw-e-memo" rows="2" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:var(--font);resize:vertical" placeholder="备注信息...">' + escHtmlAttr(memo) + '</textarea>' +
+    '<label>完成日期 <span style="font-weight:400;color:var(--text-muted);font-size:11px">（留空=未完成，填写=标记完成）</span></label><input id="sw-e-done-at" type="text" placeholder="YYYY-MM-DD，如 2026-06-30" value="' + escHtmlAttr(doneAt || '') + '" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:var(--font)">' +
     '<div class="btn-row" style="margin-top:10px"><button class="btn" data-act="close-modal">取消</button><button class="btn accent" data-act="save-sw-item">💾 保存</button></div></div></div>';
   document.getElementById('okr-modal-container').innerHTML = html;
   window._selectedEmoji = emoji;
@@ -2934,15 +2935,23 @@ async function saveSWItem() {
   var cat = document.getElementById('sw-e-cat').value;
   var memo = document.getElementById('sw-e-memo').value.trim();
   var emoji = window._selectedEmoji || '';
+  var doneAtRaw = document.getElementById('sw-e-done-at').value.trim();
+  if (doneAtRaw && !/^\d{4}-\d{2}-\d{2}$/.test(doneAtRaw)) {
+    alert('日期格式不对，请用 YYYY-MM-DD 格式，比如 2026-06-30');
+    return;
+  }
+  var isDone = !!doneAtRaw;
+  var doneAt = doneAtRaw ? doneAtRaw + 'T00:00:00.000Z' : null;
   if (window._swEditingId) {
     var item = _swItems.find(function(x) { return x.id == window._swEditingId; });
     if (!item) return;
     item.title = title; item.emoji = emoji; item.category = cat; item.memo = memo;
-    await sb.from('small_wins').update({ title: title, emoji: emoji, category: cat, memo: memo }).eq('id', window._swEditingId);
+    item.done = isDone; item.done_at = doneAt;
+    await sb.from('small_wins').update({ title: title, emoji: emoji, category: cat, memo: memo, done: isDone, done_at: doneAt }).eq('id', window._swEditingId);
   } else {
     var maxSo = 0;
     _swItems.filter(function(x) { return x.category === cat; }).forEach(function(x) { if ((x.sort_order || 0) > maxSo) maxSo = x.sort_order || 0; });
-    var newItem = { year: String(_swYear), category: cat, title: title, emoji: emoji, memo: memo, done: false, sort_order: maxSo + 1 };
+    var newItem = { year: String(_swYear), category: cat, title: title, emoji: emoji, memo: memo, done: isDone, done_at: doneAt, sort_order: maxSo + 1 };
     var { data, error } = await sb.from('small_wins').insert(newItem).select();
     if (error) { console.error('添加小事失败:', error); return; }
     if (data && data[0]) _swItems.push(data[0]);
@@ -2990,6 +2999,46 @@ function swDeleteCategory(name) {
     sb.from('small_win_categories').delete().eq('year', String(_swYear)).eq('name', name),
     sb.from('small_wins').delete().eq('year', String(_swYear)).eq('category', name)
   ]).then(function() { loadSWPage(); });
+}
+
+function swStartEditCategory(oldName) {
+  var spans = document.querySelectorAll('.sw-col-title');
+  for (var i = 0; i < spans.length; i++) {
+    if (spans[i].textContent !== oldName) continue;
+    var span = spans[i];
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldName;
+    input.className = 'sw-col-title-input';
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+    var saving = false;
+    var save = function() {
+      if (saving) return;
+      var newName = input.value.trim();
+      if (!newName || newName === oldName) {
+        input.replaceWith(span);
+        return;
+      }
+      if (_swCategories.some(function(c) { return c.name === newName; })) {
+        alert('分类名已存在');
+        input.replaceWith(span);
+        return;
+      }
+      saving = true;
+      Promise.all([
+        sb.from('small_win_categories').update({ name: newName }).eq('year', String(_swYear)).eq('name', oldName),
+        sb.from('small_wins').update({ category: newName }).eq('year', String(_swYear)).eq('category', oldName)
+      ]).then(function() { loadSWPage(); });
+    };
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { input.blur(); }
+      if (e.key === 'Escape') { input.value = oldName; input.blur(); }
+    });
+    break;
+  }
 }
 
 
@@ -4208,7 +4257,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* 分类列 */
 .sw-col {
-  min-width: 240px; max-width: 300px; flex-shrink: 0;
+  min-width: 280px; max-width: 360px; flex-shrink: 0;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 12px;
 }
@@ -4218,6 +4267,15 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .sw-col-title {
   font-size: 14px; font-weight: 600; color: var(--text); flex: 1;
+  cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: all 0.12s;
+  border: 1px solid transparent;
+}
+.sw-col-title:hover { background: var(--surface-hover); border-color: var(--border); }
+.sw-col-title-input {
+  font-size: 14px; font-weight: 600; color: var(--text); flex: 1;
+  border: 2px solid var(--accent); border-radius: 6px; padding: 3px 6px;
+  background: var(--surface); font-family: var(--font);
+  outline: none; min-width: 0;
 }
 .sw-col-count {
   font-size: 11px; color: var(--text-muted); background: var(--bg);
@@ -4292,7 +4350,7 @@ textarea { resize: vertical; min-height: 80px; }
 @media (max-width: 768px) {
   .sw-header { gap: 10px; }
   .sw-header-actions { margin-left: 0; }
-  .sw-col { min-width: 200px; max-width: 260px; }
+  .sw-col { min-width: 240px; max-width: 320px; }
   .sw-year-label { font-size: 16px; }
 }
 
