@@ -2854,6 +2854,7 @@ function renderSWColumn(cat, items) {
       emojiHtml +
       '<span class="sw-item-title">' + escHtml(item.title) + '</span>' +
       doneAtStr + memoIcon +
+      '<button class="sw-item-del-btn" onclick="event.stopPropagation();swDeleteItem(' + item.id + ')" title="删除">✕</button>' +
       '</div>';
   }).join('');
   var addBtn = _swEditMode ? '' : '<button class="sw-add-btn" onclick="swAddItem(\'' + escHtmlAttr(cat.name) + '\')">+ 添加小事</button>';
@@ -2991,6 +2992,14 @@ function swEditCategory(oldName) {
     sb.from('small_win_categories').update({ name: newName }).eq('year', String(_swYear)).eq('name', oldName),
     sb.from('small_wins').update({ category: newName }).eq('year', String(_swYear)).eq('category', oldName)
   ]).then(function() { loadSWPage(); });
+}
+
+async function swDeleteItem(id) {
+  if (!sb) return;
+  if (!confirm('确定删除这件小事吗？')) return;
+  await sb.from('small_wins').delete().eq('id', id);
+  _swItems = _swItems.filter(function(x) { return x.id != id; });
+  renderSWKanban();
 }
 
 function swDeleteCategory(name) {
@@ -4318,6 +4327,15 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .sw-item:hover .sw-item-memo-icon { opacity: 1; }
 .sw-item-memo-icon.has-memo { opacity: 1; color: var(--accent); }
+.sw-item-del-btn {
+  font-size: 14px; color: var(--text-muted); flex-shrink: 0;
+  opacity: 0; transition: opacity 0.12s;
+  width: 22px; height: 22px; border-radius: 4px;
+  border: none; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.sw-item:hover .sw-item-del-btn { opacity: 0.5; }
+.sw-item-del-btn:hover { opacity: 1 !important; color: var(--danger); background: rgba(231,111,81,0.1); }
 
 /* 编辑模式下的卡片 */
 .sw-item.edit-mode {
@@ -4325,7 +4343,8 @@ textarea { resize: vertical; min-height: 80px; }
 }
 .sw-item.edit-mode:hover { background: #FFF3EB; }
 .sw-item.edit-mode .sw-item-check,
-.sw-item.edit-mode .sw-item-memo-icon { opacity: 0.4; pointer-events: none; }
+.sw-item.edit-mode .sw-item-memo-icon,
+.sw-item.edit-mode .sw-item-del-btn { opacity: 0.4; pointer-events: none; }
 
 /* 编辑模式下的分类列 */
 .sw-col.edit-mode {
