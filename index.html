@@ -2096,7 +2096,7 @@ function calcBalance() {
   var expense = parseFloat(document.getElementById('rv-expense')?.value) || 0;
   var balanceEl = document.getElementById('rv-balance');
   if (balanceEl) {
-    balanceEl.value = (income || expense) ? (income - expense) : '';
+    balanceEl.value = (income || expense) ? (income - expense).toFixed(2) : '';
   }
 }
 
@@ -2107,7 +2107,7 @@ function renderFinanceSection() {
 
   var income = data.income || '';
   var expense = data.expense || '';
-  var balance = (income !== '' && expense !== '') ? (income - expense) : '';
+  var balance = (income !== '' && expense !== '') ? (income - expense).toFixed(2) : '';
 
   var html = '<div class="rv-finance">';
   html += '<div class="rv-finance-title">💰 财务回顾</div>';
