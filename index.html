@@ -2179,12 +2179,18 @@ async function saveReview() {
 
   var result = await sb.from('reviews').upsert(payload, { onConflict: 'period' });
   if (result.error) {
-    // 表可能还不存在
-    if (result.error.message && result.error.message.indexOf('reviews') !== -1) {
-      alert('❌ 复盘表还不存在。请在 Supabase 后台执行：\n\nCREATE TABLE IF NOT EXISTS reviews (\n  id BIGSERIAL PRIMARY KEY,\n  period TEXT NOT NULL UNIQUE,\n  highlights TEXT DEFAULT \'\',\n  low_points TEXT DEFAULT \'\',\n  learnings TEXT DEFAULT \'\',\n  next_focus TEXT DEFAULT \'\',\n  income NUMERIC DEFAULT 0,\n  expense NUMERIC DEFAULT 0,\n  saved_this_month NUMERIC DEFAULT 0,\n  saved_total NUMERIC DEFAULT 0,\n  finance_note TEXT DEFAULT \'\',\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);');
+    var errMsg = result.error.message || '';
+    // 表不存在
+    if (errMsg.indexOf('relation') !== -1 && errMsg.indexOf('does not exist') !== -1) {
+      alert('❌ 复盘表还不存在。请在 Supabase 后台 SQL Editor 执行：\n\nCREATE TABLE IF NOT EXISTS reviews (\n  period TEXT PRIMARY KEY,\n  highlights TEXT DEFAULT \'\',\n  low_points TEXT DEFAULT \'\',\n  learnings TEXT DEFAULT \'\',\n  next_focus TEXT DEFAULT \'\',\n  income NUMERIC DEFAULT 0,\n  expense NUMERIC DEFAULT 0,\n  saved_this_month NUMERIC DEFAULT 0,\n  saved_total NUMERIC DEFAULT 0,\n  finance_note TEXT DEFAULT \'\',\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n然后执行：\nALTER TABLE reviews DISABLE ROW LEVEL SECURITY;');
       return;
     }
-    alert('保存失败: ' + result.error.message);
+    // RLS 未关闭（最常见）
+    if (errMsg.indexOf('row-level security') !== -1 || errMsg.indexOf('policy') !== -1) {
+      alert('❌ 复盘表 RLS 未关闭，禁止写入。\n请在 Supabase 后台 SQL Editor 执行：\n\nALTER TABLE reviews DISABLE ROW LEVEL SECURITY;');
+      return;
+    }
+    alert('保存失败: ' + errMsg);
     return;
   }
 
